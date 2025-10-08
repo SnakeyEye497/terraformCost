@@ -1,0 +1,46 @@
+### Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
+
+### VS Code
+.vscode/
+
+### MacOS
+.DS_Store
+
+### Environment / Secrets
+.env
+.env.*
+*.secret
+secrets.json
+
+### Logs
+logs/
+*.log
+
+### Editor directories and files
+*.sublime-workspace
+*.swp
+
+### Bundler / Build
+dist/
+build/
+out/
+
+### Terraform local state and crash logs
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+
+### Misc
+.history/
+Thumbs.db
+node_modules
+.vscode-test/
+*.vsix
+.env
