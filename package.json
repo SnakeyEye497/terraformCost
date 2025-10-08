@@ -1,22 +1,39 @@
 {
   "name": "terraform-cost-calculator",
-  "displayName": "Terraform Cost Calculator",
+  "displayName": "Matali - Terraform Cost Calculator",
   "description": "Real-time cost estimation for Terraform infrastructure across AWS, GCP, and Azure",
   "version": "1.0.0",
-  "publisher": "your-publisher-name",
+  "publisher": "UnknownPublisher",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/yourusername/terraform-cost-calculator"
   },
-  "keywords": ["terraform", "cost", "aws", "gcp", "azure", "cloud", "pricing"],
+  "bugs": {
+    "url": "https://github.com/yourusername/terraform-cost-calculator/issues"
+  },
+  "keywords": [
+    "terraform",
+    "cost",
+    "aws",
+    "gcp",
+    "azure",
+    "cloud",
+    "pricing",
+    "infracost",
+    "finops"
+  ],
   "engines": {
-    "vscode": "^1.104.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
+    "Programming Languages",
+    "Linters",
     "Other"
   ],
   "activationEvents": [
-    "onFileSystem:file"
+    "onLanguage:terraform",
+    "workspaceContains:**/*.tf"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -24,17 +41,20 @@
       {
         "command": "terraformCost.calculateCosts",
         "title": "Calculate Terraform Costs",
-        "category": "Terraform Cost"
+        "category": "Terraform Cost",
+        "icon": "$(calculator)"
       },
       {
         "command": "terraformCost.toggleCostDisplay",
         "title": "Toggle Cost Display",
-        "category": "Terraform Cost"
+        "category": "Terraform Cost",
+        "icon": "$(eye)"
       },
       {
         "command": "terraformCost.refreshCosts",
         "title": "Refresh Cost Estimates",
-        "category": "Terraform Cost"
+        "category": "Terraform Cost",
+        "icon": "$(refresh)"
       },
       {
         "command": "terraformCost.toggleTotalCostHeader",
@@ -50,33 +70,58 @@
           "default": true,
           "description": "Enable Terraform cost calculation"
         },
+        "terraformCost.useInfracost": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Infracost CLI for accurate pricing (requires API key)"
+        },
+        "terraformCost.infracostApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Infracost API Key (get free key at https://www.infracost.io)"
+        },
         "terraformCost.providers": {
           "type": "array",
-          "default": ["aws", "gcp", "azure"],
+          "default": [
+            "aws",
+            "gcp",
+            "azure"
+          ],
           "description": "Cloud providers to support",
           "items": {
             "type": "string",
-            "enum": ["aws", "gcp", "azure"]
+            "enum": [
+              "aws",
+              "gcp",
+              "azure"
+            ]
           }
         },
         "terraformCost.currency": {
           "type": "string",
           "default": "USD",
           "description": "Currency for cost display",
-          "enum": ["USD", "EUR", "GBP", "JPY"]
+          "enum": [
+            "USD",
+            "EUR",
+            "GBP",
+            "JPY"
+          ]
         },
         "terraformCost.region": {
           "type": "object",
           "default": {
             "aws": "us-east-1",
             "gcp": "us-central1",
-            "azure": "East US"
+            "azure": "eastus"
           },
           "description": "Default regions for each provider"
         },
         "terraformCost.updateInterval": {
           "type": "number",
           "default": 2000,
+          "minimum": 500,
+          "maximum": 10000,
           "description": "Cost update interval in milliseconds"
         },
         "terraformCost.showInlineDecorations": {
@@ -93,34 +138,49 @@
           "type": "boolean",
           "default": true,
           "description": "Show total infrastructure cost at the top of Terraform files"
+        },
+        "terraformCost.expensiveThreshold": {
+          "type": "number",
+          "default": 100,
+          "description": "Monthly cost threshold (in USD) to highlight expensive resources"
         }
       }
     },
     "languages": [
       {
         "id": "terraform",
-        "aliases": ["Terraform", "terraform"],
-        "extensions": [".tf", ".tfvars"],
-        "configuration": "./language-configuration.json"
+        "aliases": [
+          "Terraform",
+          "terraform",
+          "HCL"
+        ],
+        "extensions": [
+          ".tf",
+          ".tfvars"
+        ]
       }
     ]
   },
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "vscode-test"
+    "test": "node ./test/runTest.js",
+    "vscode:prepublish": "npm run package",
+    "package": "webpack --mode production",
+    "compile": "webpack --mode development",
+    "watch": "webpack --mode development --watch"
   },
   "dependencies": {
-    "hcl2-parser": "^1.0.3",
-    "axios": "^1.6.0",
-    "debounce": "^1.2.1"
+    "debounce": "^2.0.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.104.0",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "eslint": "^9.36.0",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.x",
+    "@types/mocha": "^10.0.6",
+    "@vscode/test-electron": "^2.3.9",
+    "eslint": "^8.56.0",
+    "mocha": "^10.2.0",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
   }
 }
