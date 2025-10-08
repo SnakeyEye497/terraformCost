@@ -32,7 +32,6 @@ crash.log
 ### Misc
 .history/
 Thumbs.db
-node_modules
 .vscode-test/
 *.vsix
 .env
