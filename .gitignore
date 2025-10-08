@@ -35,3 +35,71 @@ Thumbs.db
 .vscode-test/
 *.vsix
 .env
+
+
+### VS Code
+.vscode/
+
+### MacOS
+.DS_Store
+
+### Environment / Secrets
+.env
+.env.*
+*.secret
+secrets.json
+
+### Logs
+logs/
+*.log
+
+### Editor directories and files
+*.sublime-workspace
+*.swp
+
+### Bundler / Build
+dist/
+build/
+out/
+
+### Terraform local state and crash logs
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+
+### Misc
+.history/
+Thumbs.db
+.vscode-test/
+*.vsix
+.env
+
+
+node_modules
+.vscode-test/
+*.vsix
+.DS_Store
+*.log
+.env
+.vscode/settings.json
+
+# Build output
+out/
+dist/
+
+# Test coverage
+coverage/
+
+# Infracost cache
+.infracost/
+infracost-*.json
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
