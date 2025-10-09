@@ -83,6 +83,7 @@ resource "aws_db_instance" "postgres" {
 | `terraformCost.showStatusBar` | `true` | Show total in status bar |
 | `terraformCost.showTotalCostHeader` | `true` | Show cost summary at top |
 | `terraformCost.expensiveThreshold` | `100` | Threshold for expensive resource warning |
+| `terraformCost.useSeparateBudgetDecoration` | `true` | Show budget messages as a separate block under the total cost header |
 
 ### Region Configuration
 
@@ -147,3 +148,33 @@ MIT License - see LICENSE file for details
 --- -->
 
 **Made with ❤️ for DevOps Engineers who care about cloud costs**
+
+## 💸 Optional Budgeting Feature (new)
+
+You can optionally add a `terraform.budget.json` file to your workspace (placed in your repository root or any parent folder of the Terraform files). When present the extension will monitor total estimated monthly costs and surface in-editor feedback when configured thresholds are reached.
+
+Supported fields (all numeric):
+- `final_limit` — Final budget. When reached the header turns red and an error diagnostic/popup is shown.
+- `limit_1`, `limit_2`, `limit_3` — Progressive thresholds. When reached the header turns yellow and a visible budget block appears below the total header.
+
+Example `terraform.budget.json`:
+
+```json
+{
+  "final_limit": 2000.00,
+  "limit_1": 100.00,
+  "limit_2": 500.00,
+  "limit_3": 1000.00
+}
+```
+
+Behavior:
+- The total infra cost header is green by default.
+- When `limit_1/2/3` is reached the header becomes yellow and a separate budget block message is shown under the header (visible inline, controlled by `terraformCost.useSeparateBudgetDecoration`).
+- When `final_limit` is reached the header becomes red, a diagnostic (error) is emitted at the top of the file and an error popup is shown.
+- The extension avoids spamming notifications — it only notifies when you cross into a higher threshold level.
+
+Settings:
+- `terraformCost.useSeparateBudgetDecoration` (default: `true`) — If enabled, the budget message is shown as a separate styled block under the total header (recommended). If disabled, the message is appended inline with the header.
+
+This feature is optional and can be removed by deleting `terraform.budget.json` from your workspace.

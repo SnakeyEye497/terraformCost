@@ -139,6 +139,11 @@
           "default": true,
           "description": "Show total infrastructure cost at the top of Terraform files"
         },
+        "terraformCost.useSeparateBudgetDecoration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show budget messages as a separate block decoration under the total cost header"
+        },
         "terraformCost.expensiveThreshold": {
           "type": "number",
           "default": 100,

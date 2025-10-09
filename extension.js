@@ -11,6 +11,8 @@ let terraformParser;
 let costDecorator;
 let statusBarManager;
 let errorHandler;
+let budgetManager;
+let budgetDiagnostics; // vscode.DiagnosticCollection
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -25,6 +27,8 @@ async function activate(context) {
         terraformParser = new TerraformParser();
         costDecorator = new CostDecorator();
         statusBarManager = new StatusBarManager();
+    budgetManager = new (require('./src/budget-manager'))();
+    budgetDiagnostics = vscode.languages.createDiagnosticCollection('terraformBudget');
 
         // Initialize cost calculator (async)
         await costCalculator.initialize(context);
@@ -34,6 +38,24 @@ async function activate(context) {
 
         // Set up file watchers and events
         setupFileWatchers(context);
+
+        // Watch for budget file changes so we reload budgets and re-evaluate
+        const budgetWatcher = vscode.workspace.createFileSystemWatcher('**/terraform.budget.json');
+        const onBudgetChange = async (uri) => {
+            // reload budget for folder and re-run analysis on open terraform files
+            await budgetManager.loadBudgetForFolder(vscode.Uri.file(uri.fsPath.replace(/\/terraform.budget.json$/,'')));
+            await processOpenTerraformFiles();
+        };
+
+        budgetWatcher.onDidCreate(onBudgetChange, null, context.subscriptions);
+        budgetWatcher.onDidChange(onBudgetChange, null, context.subscriptions);
+        budgetWatcher.onDidDelete(async (uri) => {
+            // clear cache and diagnostics when deleted
+            budgetManager.clearCache();
+            budgetDiagnostics.clear();
+            await processOpenTerraformFiles();
+        }, null, context.subscriptions);
+        context.subscriptions.push(budgetWatcher, budgetDiagnostics);
 
         // Process already open Terraform files
         await processOpenTerraformFiles();
@@ -255,7 +277,33 @@ async function calculateAndDisplayCosts(editor) {
 
         // Display inline decorations
         if (shouldShowInlineDecorations() && validResourceCosts.length > 0) {
-            costDecorator.decorateEditor(editor, validResourceCosts);
+            // prepare budgetInfo for decorator
+            let budgetInfo = null;
+            try {
+                const b = await budgetManager.loadBudgetForFile(document.uri.fsPath);
+                if (b) {
+                    const totalCost = validResourceCosts.reduce((s, i) => s + (i.cost.monthly || 0), 0);
+                    let level = 0;
+                    if (b.limit_1 && totalCost >= b.limit_1) level = Math.max(level, 1);
+                    if (b.limit_2 && totalCost >= b.limit_2) level = Math.max(level, 2);
+                    if (b.limit_3 && totalCost >= b.limit_3) level = Math.max(level, 3);
+                    if (b.final_limit && totalCost >= b.final_limit) level = Math.max(level, 4);
+
+                    let msg = '';
+                    if (level >= 1) {
+                        if (level === 4) {
+                            msg = `Final budget reached: ${totalCost.toFixed(2)}`;
+                        } else {
+                            msg = `Budget level ${level} reached: ${totalCost.toFixed(2)}`;
+                        }
+                    }
+                    budgetInfo = { level, message: msg };
+                }
+            } catch (err) {
+                console.warn('Failed to load budget for decorator', err.message);
+            }
+
+            costDecorator.decorateEditor(editor, validResourceCosts, budgetInfo);
         } else {
             costDecorator.clearDecorations(editor);
         }
@@ -273,6 +321,13 @@ async function calculateAndDisplayCosts(editor) {
             }
         } else {
             statusBarManager.hide();
+        }
+
+        // Budget check: load budget for this file and emit diagnostics / warnings
+        try {
+            await checkBudgetAndWarn(document.uri.fsPath, validResourceCosts.reduce((s, i) => s + (i.cost.monthly || 0), 0));
+        } catch (err) {
+            console.warn('Budget check failed:', err.message);
         }
 
     } catch (error) {
@@ -298,6 +353,56 @@ function clearAllDecorations() {
     }
     if (statusBarManager) {
         statusBarManager.hide();
+    }
+}
+
+async function checkBudgetAndWarn(filePath, totalMonthly) {
+    if (!budgetManager) return;
+
+    const budget = await budgetManager.loadBudgetForFile(filePath);
+    if (!budget) {
+        // clear any diagnostics for this file
+        budgetDiagnostics?.delete(vscode.Uri.file(filePath));
+        return;
+    }
+
+    // Determine level: 0 = ok, 1 = limit_1, 2 = limit_2, 3 = limit_3, 4 = final_limit
+    let level = 0;
+    if (budget.limit_1 && totalMonthly >= budget.limit_1) level = Math.max(level, 1);
+    if (budget.limit_2 && totalMonthly >= budget.limit_2) level = Math.max(level, 2);
+    if (budget.limit_3 && totalMonthly >= budget.limit_3) level = Math.max(level, 3);
+    if (budget.final_limit && totalMonthly >= budget.final_limit) level = Math.max(level, 4);
+
+    const prev = budgetManager.getNotificationLevelForFile(filePath) || 0;
+
+    if (level > 0) {
+        // Create diagnostic at top of file
+        const uri = vscode.Uri.file(filePath);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const range = new vscode.Range(0, 0, 0, Math.min(200, doc.lineAt(0).text.length));
+        const severity = level >= 4 ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning;
+        const message = level >= 4 ?
+            `Budget exceeded: total ${totalMonthly.toFixed(2)} >= final_limit ${budget.final_limit}` :
+            `Budget threshold reached (level ${level}): total ${totalMonthly.toFixed(2)}`;
+
+        const diag = new vscode.Diagnostic(range, message, severity);
+        diag.source = 'terraform.budget.json';
+
+        budgetDiagnostics.set(uri, [diag]);
+
+        // Only show notification when crossing into a higher level
+        if (level > prev) {
+            if (level >= 4) {
+                vscode.window.showErrorMessage(message);
+            } else {
+                vscode.window.showWarningMessage(message);
+            }
+            budgetManager.setNotificationLevelForFile(filePath, level);
+        }
+    } else {
+        // Clear diagnostics and reset notification level
+        budgetDiagnostics.delete(vscode.Uri.file(filePath));
+        budgetManager.setNotificationLevelForFile(filePath, 0);
     }
 }
 

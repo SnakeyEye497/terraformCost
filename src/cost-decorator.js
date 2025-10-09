@@ -54,9 +54,22 @@ class CostDecorator {
             borderRadius: '3px',
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
         });
+
+        this.budgetDecorationType = vscode.window.createTextEditorDecorationType({
+            isWholeLine: false,
+            after: {
+                margin: '0 0 0 2em',
+                color: '#FFB300',
+                fontWeight: '600'
+            },
+            backgroundColor: 'rgba(255, 187, 51, 0.06)',
+            border: '1px solid rgba(255, 187, 51, 0.12)',
+            borderRadius: '3px',
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
+        });
     }
 
-    decorateEditor(editor, resourceCosts) {
+    decorateEditor(editor, resourceCosts, budgetInfo = null) {
         if (!editor || !resourceCosts || resourceCosts.length === 0) {
             this.clearDecorations(editor);
             return;
@@ -73,9 +86,16 @@ class CostDecorator {
         // Add total cost decoration at the top of the file (if enabled)
         const showTotalCostHeader = vscode.workspace.getConfiguration('terraformCost').get('showTotalCostHeader', true);
         if (totalCost > 0 && showTotalCostHeader) {
-            const totalCostDecoration = this.createTotalCostDecoration(editor, totalCost, resourceCosts[0]?.cost?.currency || 'USD');
-            if (totalCostDecoration) {
-                totalCostDecorations.push(totalCostDecoration);
+            const decs = this.createTotalCostDecoration(editor, totalCost, resourceCosts[0]?.cost?.currency || 'USD', budgetInfo);
+            if (decs) {
+                if (decs.mainDecoration) totalCostDecorations.push(decs.mainDecoration);
+                // store budgetDecoration separately by attaching to a temp field on editor (we'll apply later)
+                if (decs.budgetDecoration) {
+                    // reuse a local temporary store
+                    this._pendingBudgetDecoration = decs.budgetDecoration;
+                } else {
+                    this._pendingBudgetDecoration = null;
+                }
             }
         }
 
@@ -110,9 +130,16 @@ class CostDecorator {
             editor.setDecorations(this.totalCostDecorationType, totalCostDecorations);
             editor.setDecorations(this.totalCostExpensiveDecorationType, []);
         }
+
+        // Apply separate budget decoration (if any)
+        if (this._pendingBudgetDecoration) {
+            editor.setDecorations(this.budgetDecorationType, [this._pendingBudgetDecoration]);
+        } else {
+            editor.setDecorations(this.budgetDecorationType, []);
+        }
     }
 
-    createTotalCostDecoration(editor, totalCost, currency) {
+    createTotalCostDecoration(editor, totalCost, currency, budgetInfo = null) {
         if (!editor || totalCost <= 0) {
             return null;
         }
@@ -129,20 +156,58 @@ class CostDecorator {
         }
 
         const line = editor.document.lineAt(targetLine);
-        const costText = this.formatTotalCostText(totalCost, currency);
+    const costText = this.formatTotalCostText(totalCost, currency);
         const range = new vscode.Range(targetLine, line.text.length, targetLine, line.text.length);
-        
-        return {
+
+        // Decide color based on budgetInfo.level: 0=green, 1-3=yellow, 4=red
+        let color = '#4CAF50';
+        let budgetLine = '';
+        let level = 0;
+        if (budgetInfo && typeof budgetInfo === 'object') {
+            level = budgetInfo.level || 0;
+            if (level >= 4) {
+                color = '#ff6b6b';
+            } else if (level >= 1) {
+                color = '#FFB300';
+            }
+
+            if (budgetInfo.message) {
+                // we'll optionally render a separate block decoration instead of newline
+                budgetLine = ` ${budgetInfo.message}`;
+            }
+        }
+
+        const mainDecoration = {
             range,
             renderOptions: {
                 after: {
                     contentText: costText,
-                    color: totalCost > 100 ? '#ff6b6b' : '#4CAF50',
+                    color: color,
                     fontWeight: 'bold'
                 }
             },
             hoverMessage: this.createTotalCostHoverMessage(totalCost, currency)
         };
+
+        // If separate budget block is requested, return main and also a second decoration target
+        if (budgetInfo && budgetInfo.message && vscode.workspace.getConfiguration('terraformCost').get('useSeparateBudgetDecoration', true)) {
+            // Create a second decoration anchored to the same line with budget message
+            const budgetDecoration = {
+                range,
+                renderOptions: {
+                    after: {
+                        contentText: ` ${budgetInfo.message}`,
+                        color: level >= 4 ? '#ff6b6b' : '#FFB300',
+                        fontWeight: '600'
+                    }
+                }
+            };
+
+            // Return both decorations to be applied to separate decoration types by caller
+            return { mainDecoration, budgetDecoration };
+        }
+
+        return { mainDecoration };
     }
 
     formatTotalCostText(totalCost, currency) {
@@ -395,6 +460,7 @@ class CostDecorator {
             editor.setDecorations(this.expensiveDecorationType, []);
             editor.setDecorations(this.totalCostDecorationType, []);
             editor.setDecorations(this.totalCostExpensiveDecorationType, []);
+            editor.setDecorations(this.budgetDecorationType, []);
         }
     }
 
@@ -404,6 +470,7 @@ class CostDecorator {
         this.expensiveDecorationType.dispose();
         this.totalCostDecorationType.dispose();
         this.totalCostExpensiveDecorationType.dispose();
+        this.budgetDecorationType.dispose();
     }
 }
 
