@@ -2,162 +2,102 @@
 
 > **Ride the cloud, not the cost**
 
-Real-time cost estimation for your Terraform infrastructure. See cloud costs as you write Infrastructure as Code - before you deploy!
+A VS Code extension that estimates the monthly/yearly cost of your Terraform infrastructure **as you write it** — inline next to each resource, as a total-cost header at the top of the file, and as a running total in the status bar. Supports AWS, GCP, and Azure, with optional [Infracost](https://www.infracost.io) integration for accurate live pricing (falls back to built-in estimated pricing if no API key is configured).
 
-![VS Code Extension Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Features
+---
 
-- **Real-time cost estimates** - See costs as you type
-- **Inline decorations** - Cost displayed right next to your resources
-- **Status bar totals** - Quick overview of total infrastructure costs
-- **Multi-cloud support** - AWS, GCP, and Azure
-- **Infracost integration** - Accurate pricing via Infracost API
-- **Smart highlighting** - Expensive resources highlighted automatically
-- **Cost optimization tips** - Suggestions to reduce costs
+## What this project is
 
-## Quick Start
+It's a plain-JavaScript VS Code extension (no TypeScript, no bundler required to run it) built around a small pipeline:
 
-### Installation
-
-1. Install from VS Code Marketplace (coming soon)
-2. Or install from `.vsix` file:
-   ```bash
-   code --install-extension terraform-cost-calculator-1.0.0.vsix
-   ```
-
-### Setup
-
-1. **Optional but Recommended**: Get a free [Infracost API key](https://www.infracost.io)
-2. Open VS Code Settings (`Ctrl+,` or `Cmd+,`)
-3. Search for "Terraform Cost"
-4. Enter your Infracost API key
-
-Without API key, the extension will use built-in fallback pricing (less accurate).
-
-##  Usage
-
-1. Open any `.tf` or `.tfvars` file
-2. Cost estimates appear automatically next to resources
-3. Total cost shows in the status bar (bottom right)
-
-### Commands
-
-- `Terraform Cost: Calculate Costs` - Manually trigger cost calculation
-- `Terraform Cost: Refresh Cost Estimates` - Refresh all estimates
-- `Terraform Cost: Toggle Cost Display` - Show/hide inline costs
-- `Terraform Cost: Toggle Total Cost Header` - Show/hide header summary
-
-Access commands via Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
-
-
-### Inline Cost Estimates
-```hcl
-resource "aws_instance" "web" {
-  ami           = "ami-12345678"
-  instance_type = "t3.medium"      # 💰 $30.37/mo ($364.42/yr)
-}
-
-resource "aws_db_instance" "postgres" {
-  instance_class = "db.t3.small"   # 💰 $24.82/mo ($297.84/yr)
-  engine         = "postgres"
-}
+```
+.tf file text
+   -> src/terraform-parser.js       parses HCL into resources/variables
+   -> src/cost-calculator.js        looks up/estimates monthly cost per resource
+        (optionally via src/infracost-integration.js, the Infracost CLI)
+   -> src/cost-decorator.js         renders inline decorations + total-cost header
+   -> src/status-bar-manager.js     shows the running total in the status bar
+   -> src/budget-manager.js         compares total cost against terraform.budget.json
+   -> src/error-handler.js          centralizes error logging/reporting
 ```
 
-### Total Cost Header
-```
- TOTAL INFRASTRUCTURE COST: $847.50/mo ($10,170.00/yr)
+All of this is wired together in [extension.js](extension.js), the extension's entry point.
+
+## What's currently implemented
+
+✅ **Working and test-covered** (19/19 tests passing — parser, cost-calculator, integration, and config tests):
+
+- **Terraform/HCL parsing** — resources, variables, numeric/boolean attributes, variable-reference resolution.
+- **Cost calculation** for:
+  - **AWS**: EC2 instances, RDS databases, S3 buckets, EBS volumes, NAT gateways, Load Balancers (`lb`/`alb`/`nlb`)
+  - **GCP**: Compute Engine instances, Cloud SQL, Cloud Storage, Persistent Disks
+  - **Azure**: Virtual Machines, SQL Databases, Storage Accounts, Managed Disks
+- **Inline cost decorations** next to each resource, live as you type (debounced, default 2s).
+- **Total infrastructure cost header** at the top of the file (green/yellow/red depending on budget status).
+- **Status bar total cost** display.
+- **Optional Infracost CLI integration** for real pricing data (falls back to built-in estimates automatically if the CLI/API key isn't available — see `infracostAvailable` in the activation log).
+- **Budget thresholds** via an optional `terraform.budget.json` file per workspace — `limit_1/2/3` turn the header yellow with a budget-message block, `final_limit` turns it red and raises an error diagnostic + popup. Threshold-crossing is watched live (the extension re-evaluates when the budget file is created/changed/deleted).
+- **Commands** wired up in the Command Palette: `Calculate Costs`, `Toggle Cost Display`, `Refresh Cost Estimates`, `Toggle Total Cost Header`.
+- **Error handling/logging** via `src/error-handler.js`, including `clearErrorLog` / `exportErrorLog` commands — these two are registered in code but not yet declared in `package.json`'s `contributes.commands`, so they run from the Command Palette under their raw id rather than a friendly title.
+- **20+ configuration settings** (see table below).
+
+⚠️ **Known gaps / not yet done:**
+
+- **No `webpack.config.js`** — `npm run package` / `compile` / `watch` reference webpack but there's no config for it in the repo, so those scripts currently fail. The extension doesn't need bundling to run or test (it `require()`s `src/*.js` directly), so this only matters for producing a packaged `.vsix` for the Marketplace.
+- **Not published anywhere** — `package.json` still has placeholder `publisher: "UnknownPublisher"` and a `yourusername` GitHub URL.
+- **`npm audit`** currently reports some vulnerabilities in dev-only tooling (eslint 8.x line, etc.) — not exploit-relevant for local development, but worth updating before a real release.
+- **18 `no-unused-vars` ESLint warnings** (0 errors) — cosmetic cleanup, not blocking.
+
+## Installation (cloning from GitHub)
+
+```bash
+git clone <this-repo-url>
+cd terraformCost
+npm install
 ```
 
-## ⚙️ Configuration
+That's it for getting the code runnable — `npm install` pulls in everything needed for linting, testing, and running the extension in a VS Code Extension Development Host (see [RUNNING.md](RUNNING.md)).
+
+**Requirements:**
+- [Node.js](https://nodejs.org) (tested on v22+) and npm
+- VS Code `^1.85.0`
+- Internet access the *first* time you run `npm test` — it downloads a standalone copy of VS Code (~330MB) to `.vscode-test/` to run the extension host tests in. Cached after that.
+- (Optional) An [Infracost API key](https://www.infracost.io) for accurate live pricing — without one, the extension uses its built-in fallback pricing tables.
+
+There is no published `.vsix` / Marketplace listing yet, so the only way to use the extension today is to run it from source — see **[RUNNING.md](RUNNING.md)** for the step-by-step walkthrough (Run Extension via F5, the commands to try, and what to expect).
+
+## Configuration
+
+Access via VS Code Settings (`Ctrl+,`) → search "Terraform Cost", or edit `settings.json` directly.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `terraformCost.enabled` | `true` | Enable/disable extension |
 | `terraformCost.useInfracost` | `true` | Use Infracost for accurate pricing |
 | `terraformCost.infracostApiKey` | `""` | Your Infracost API key |
+| `terraformCost.providers` | `["aws","gcp","azure"]` | Cloud providers to support |
 | `terraformCost.currency` | `USD` | Display currency (USD, EUR, GBP, JPY) |
+| `terraformCost.region` | `{aws:us-east-1, gcp:us-central1, azure:eastus}` | Default region per provider |
 | `terraformCost.updateInterval` | `2000` | Delay before recalculating (ms) |
 | `terraformCost.showInlineDecorations` | `true` | Show costs inline |
 | `terraformCost.showStatusBar` | `true` | Show total in status bar |
 | `terraformCost.showTotalCostHeader` | `true` | Show cost summary at top |
-| `terraformCost.expensiveThreshold` | `100` | Threshold for expensive resource warning |
-| `terraformCost.useSeparateBudgetDecoration` | `true` | Show budget messages as a separate block under the total cost header |
+| `terraformCost.useSeparateBudgetDecoration` | `true` | Show budget messages as a separate block under the total header |
+| `terraformCost.expensiveThreshold` | `100` | Threshold (USD/mo) to highlight expensive resources |
 
-### Region Configuration
+### Cost indicators
 
-```json
-{
-  "terraformCost.region": {
-    "aws": "us-east-1",
-    "gcp": "us-central1",
-    "azure": "eastus"
-  }
-}
-```
+- 🟢 Green — < $10/month
+- 🟡 Yellow — $10–50/month
+- 🟠 Orange — $50–100/month
+- 🔴 Red — > $100/month
 
-## 🎨 Cost Indicators
+### Optional budgeting (`terraform.budget.json`)
 
-- **Green** - Low cost (< $10/month)
-- **Yellow** - Medium cost ($10-50/month)
-- **Orange** - High cost ($50-100/month)
-- **Red** - Very high cost (> $100/month)
-
-##  Supported Resources
-
-### AWS
-- EC2 Instances (`aws_instance`)
-- RDS Databases (`aws_db_instance`)
-- S3 Buckets (`aws_s3_bucket`)
-- EBS Volumes (`aws_ebs_volume`)
-- NAT Gateways (`aws_nat_gateway`)
-- Load Balancers (`aws_lb`, `aws_alb`, `aws_nlb`)
-
-### GCP
-- Compute Instances (`google_compute_instance`)
-- Cloud SQL (`google_sql_database_instance`)
-- Cloud Storage (`google_storage_bucket`)
-- Persistent Disks (`google_compute_disk`)
-
-### Azure
-- Virtual Machines (`azurerm_virtual_machine`)
-- SQL Databases (`azurerm_sql_database`)
-- Storage Accounts (`azurerm_storage_account`)
-- Managed Disks (`azurerm_managed_disk`)
-
-##  Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Acknowledgments
-
-- [Infracost](https://www.infracost.io) - Accurate cloud cost data
-- VS Code team for excellent extension API
-
-<!-- ##  Support
-
--  [Report bugs](https://github.com/yourusername/terraform-cost-calculator/issues)
--  [Request features](https://github.com/yourusername/terraform-cost-calculator/issues)
-- Email: swarajpawar465@gmail.com
-
---- -->
-
-**Made with ❤️ for DevOps Engineers who care about cloud costs**
-
-## 💸 Optional Budgeting Feature (new)
-
-You can optionally add a `terraform.budget.json` file to your workspace (placed in your repository root or any parent folder of the Terraform files). When present the extension will monitor total estimated monthly costs and surface in-editor feedback when configured thresholds are reached.
-
-Supported fields (all numeric):
-- `final_limit` — Final budget. When reached the header turns red and an error diagnostic/popup is shown.
-- `limit_1`, `limit_2`, `limit_3` — Progressive thresholds. When reached the header turns yellow and a visible budget block appears below the total header.
-
-Example `terraform.budget.json`:
+Drop a `terraform.budget.json` in your workspace root (or any parent folder of your `.tf` files):
 
 ```json
 {
@@ -168,13 +108,39 @@ Example `terraform.budget.json`:
 }
 ```
 
-Behavior:
-- The total infra cost header is green by default.
-- When `limit_1/2/3` is reached the header becomes yellow and a separate budget block message is shown under the header (visible inline, controlled by `terraformCost.useSeparateBudgetDecoration`).
-- When `final_limit` is reached the header becomes red, a diagnostic (error) is emitted at the top of the file and an error popup is shown.
-- The extension avoids spamming notifications — it only notifies when you cross into a higher threshold level.
+- `limit_1/2/3` reached → header turns yellow, a budget-message block appears.
+- `final_limit` reached → header turns red, an error diagnostic + popup appears.
+- Notifications only fire when crossing into a *higher* threshold (no spam).
+- Delete the file to disable the feature for that workspace.
 
-Settings:
-- `terraformCost.useSeparateBudgetDecoration` (default: `true`) — If enabled, the budget message is shown as a separate styled block under the total header (recommended). If disabled, the message is appended inline with the header.
+## Commands
 
-This feature is optional and can be removed by deleting `terraform.budget.json` from your workspace.
+| Command | What it does |
+|---|---|
+| `Terraform Cost: Calculate Costs` | Manually (re-)calculate costs for the active file |
+| `Terraform Cost: Refresh Cost Estimates` | Clears the cost cache and recalculates all open Terraform files |
+| `Terraform Cost: Toggle Cost Display` | Show/hide inline cost decorations |
+| `Terraform Cost: Toggle Total Cost Header` | Show/hide the total-cost header at the top of the file |
+
+Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+
+## Development
+
+| Task | Command |
+|---|---|
+| Lint | `npm run lint` |
+| Run tests (downloads a VS Code test instance on first run) | `npm test` |
+| Run the extension interactively | See [RUNNING.md](RUNNING.md) |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Acknowledgments
+
+- [Infracost](https://www.infracost.io) — accurate cloud cost data
+- The VS Code extension API team
+
+---
+
+**Made for DevOps engineers who care about cloud costs.**
