@@ -1,9 +1,11 @@
 const vscode = require('vscode');
+const path = require('path');
 const TerraformCostCalculator = require('./src/cost-calculator');
 const TerraformParser = require('./src/terraform-parser');
 const CostDecorator = require('./src/cost-decorator');
 const StatusBarManager = require('./src/status-bar-manager');
 const ErrorHandler = require('./src/error-handler');
+const CostDashboardPanel = require('./src/cost-dashboard');
 const debounce = require('debounce');
 
 let costCalculator;
@@ -13,6 +15,42 @@ let statusBarManager;
 let errorHandler;
 let budgetManager;
 let budgetDiagnostics; // vscode.DiagnosticCollection
+let lastDashboardData = null; // most recent dashboard snapshot, kept warm even while the panel is closed
+
+// Friendly labels for the resource dashboard's "cost by type" breakdown.
+const RESOURCE_TYPE_LABELS = {
+    aws_instance: 'EC2 Instance',
+    aws_db_instance: 'RDS Database',
+    aws_s3_bucket: 'S3 Bucket',
+    aws_ebs_volume: 'EBS Volume',
+    aws_nat_gateway: 'NAT Gateway',
+    aws_lb: 'Load Balancer',
+    aws_alb: 'App Load Balancer',
+    aws_nlb: 'Network Load Balancer',
+    aws_eks_cluster: 'EKS Cluster',
+    aws_rds_cluster: 'RDS Cluster',
+    aws_elasticache_cluster: 'ElastiCache',
+    google_compute_instance: 'Compute Engine VM',
+    google_sql_database_instance: 'Cloud SQL',
+    google_storage_bucket: 'Cloud Storage',
+    google_compute_disk: 'Compute Disk',
+    google_container_cluster: 'GKE Cluster',
+    azurerm_virtual_machine: 'Virtual Machine',
+    azurerm_linux_virtual_machine: 'Linux VM',
+    azurerm_windows_virtual_machine: 'Windows VM',
+    azurerm_sql_database: 'SQL Database',
+    azurerm_storage_account: 'Storage Account',
+    azurerm_managed_disk: 'Managed Disk',
+    azurerm_kubernetes_cluster: 'AKS Cluster'
+};
+
+function humanizeResourceType(type) {
+    if (RESOURCE_TYPE_LABELS[type]) return RESOURCE_TYPE_LABELS[type];
+    return type
+        .replace(/^(aws|google|azurerm)_/, '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -139,14 +177,176 @@ function registerCommands(context) {
         }
     });
 
+    // Show cost dashboard command (charts: breakdown donut, provider bars, 12-month forecast)
+    const showCostDashboardCommand = vscode.commands.registerCommand('terraformCost.showCostDashboard', () => {
+        const panel = CostDashboardPanel.createOrShow();
+        panel.onRefreshRequest(() => refreshDashboard());
+    });
+
     context.subscriptions.push(
         calculateCostsCommand,
         toggleCostDisplayCommand,
         refreshCostsCommand,
         toggleTotalCostHeaderCommand,
         clearErrorLogCommand,
-        exportErrorLogCommand
+        exportErrorLogCommand,
+        showCostDashboardCommand
     );
+}
+
+/**
+ * Recompute dashboard data for whichever Terraform file is currently relevant
+ * (the active editor if there is one, otherwise the last file we had data for)
+ * and push it into the dashboard panel, if it's open.
+ */
+async function refreshDashboard() {
+    const panel = CostDashboardPanel.currentPanel;
+    if (!panel) return;
+
+    const editor = vscode.window.activeTextEditor;
+    if (editor && isTerraformFile(editor.document)) {
+        // This recalculates costs and, as a side effect, refreshes lastDashboardData/panel.
+        await calculateAndDisplayCosts(editor);
+        return;
+    }
+
+    panel.update(lastDashboardData || { empty: true, generatedAt: Date.now() });
+}
+
+/**
+ * Aggregate already-computed resource costs into the shape the dashboard webview
+ * renders (totals, cost-by-provider, cost-by-type, a 12-month forecast, and budget
+ * status). Cheap and synchronous except for the budget file lookup, and reuses
+ * costs calculateAndDisplayCosts already computed rather than recalculating them.
+ */
+async function buildDashboardAggregate(document, validResourceCosts) {
+    const fileName = path.basename(document.uri.fsPath);
+    const currency = getCurrency();
+
+    if (!validResourceCosts || validResourceCosts.length === 0) {
+        return { empty: true, fileName, currency, generatedAt: Date.now() };
+    }
+
+    let totalMonthly = 0;
+    let totalHourly = 0;
+    let totalYearly = 0;
+    const providerMap = new Map();
+    const typeMap = new Map();
+    const resourceList = [];
+
+    for (const { resource, cost } of validResourceCosts) {
+        const monthly = cost.monthly || 0;
+        totalMonthly += monthly;
+        totalHourly += cost.hourly || 0;
+        totalYearly += cost.yearly || monthly * 12;
+
+        const provider = resource.provider || 'unknown';
+        const providerEntry = providerMap.get(provider) || { provider, monthly: 0, count: 0 };
+        providerEntry.monthly += monthly;
+        providerEntry.count += 1;
+        providerMap.set(provider, providerEntry);
+
+        const type = resource.type || 'unknown';
+        const typeEntry = typeMap.get(type) || { type, label: humanizeResourceType(type), monthly: 0, count: 0 };
+        typeEntry.monthly += monthly;
+        typeEntry.count += 1;
+        typeMap.set(type, typeEntry);
+
+        resourceList.push({ name: resource.name, type, provider, monthly });
+    }
+
+    const providerOrder = ['aws', 'gcp', 'azure'];
+    const byProvider = Array.from(providerMap.values()).sort((a, b) => {
+        const ai = providerOrder.indexOf(a.provider);
+        const bi = providerOrder.indexOf(b.provider);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
+    let byType = Array.from(typeMap.values()).sort((a, b) => b.monthly - a.monthly);
+    const TOP_TYPES = 5;
+    if (byType.length > TOP_TYPES) {
+        const top = byType.slice(0, TOP_TYPES);
+        const rest = byType.slice(TOP_TYPES);
+        byType = [
+            ...top,
+            {
+                type: 'other',
+                label: `Other (${rest.length} types)`,
+                monthly: rest.reduce((s, r) => s + r.monthly, 0),
+                count: rest.reduce((s, r) => s + r.count, 0),
+                isOther: true
+            }
+        ];
+    }
+
+    const topResources = [...resourceList].sort((a, b) => b.monthly - a.monthly).slice(0, 5);
+
+    // 12-month forecast: a flat scenario (no change) vs an illustrative growth
+    // scenario, so the chart tells a "what if this keeps scaling" story.
+    const GROWTH_RATE = 0.05; // ~5%/month, e.g. modest traffic-driven scaling
+    const months = [];
+    const flat = [];
+    const growth = [];
+    let flatCumulative = 0;
+    let growthCumulative = 0;
+    let growthMonthly = totalMonthly;
+    for (let m = 1; m <= 12; m++) {
+        flatCumulative += totalMonthly;
+        growthCumulative += growthMonthly;
+        months.push(m);
+        flat.push(Number(flatCumulative.toFixed(2)));
+        growth.push(Number(growthCumulative.toFixed(2)));
+        growthMonthly *= 1 + GROWTH_RATE;
+    }
+
+    // Budget status, reusing the same thresholds checkBudgetAndWarn evaluates.
+    let budget = null;
+    try {
+        const b = await budgetManager.loadBudgetForFile(document.uri.fsPath);
+        if (b && (b.final_limit || b.limit_1 || b.limit_2 || b.limit_3)) {
+            let level = 0;
+            if (b.limit_1 && totalMonthly >= b.limit_1) level = Math.max(level, 1);
+            if (b.limit_2 && totalMonthly >= b.limit_2) level = Math.max(level, 2);
+            if (b.limit_3 && totalMonthly >= b.limit_3) level = Math.max(level, 3);
+            if (b.final_limit && totalMonthly >= b.final_limit) level = Math.max(level, 4);
+            budget = {
+                limit_1: b.limit_1,
+                limit_2: b.limit_2,
+                limit_3: b.limit_3,
+                final_limit: b.final_limit,
+                level,
+                current: totalMonthly
+            };
+        }
+    } catch (err) {
+        console.warn('Dashboard budget lookup failed:', err.message);
+    }
+
+    return {
+        empty: false,
+        fileName,
+        currency,
+        totals: { hourly: totalHourly, monthly: totalMonthly, yearly: totalYearly },
+        resourceCount: validResourceCosts.length,
+        byProvider,
+        byType,
+        topResources,
+        forecast: { months, flat, growth, growthRatePct: GROWTH_RATE * 100 },
+        budget,
+        generatedAt: Date.now()
+    };
+}
+
+/** Recompute the dashboard snapshot and push it to the panel, if one is open. */
+async function updateDashboard(document, validResourceCosts) {
+    try {
+        lastDashboardData = await buildDashboardAggregate(document, validResourceCosts);
+        if (CostDashboardPanel.currentPanel) {
+            CostDashboardPanel.currentPanel.update(lastDashboardData);
+        }
+    } catch (err) {
+        console.warn('Failed to update cost dashboard:', err.message);
+    }
 }
 
 function setupFileWatchers(context) {
@@ -240,6 +440,7 @@ async function calculateAndDisplayCosts(editor) {
             // No resources found, clear decorations
             costDecorator.clearDecorations(editor);
             statusBarManager.hide();
+            updateDashboard(document, []);
             return;
         }
 
@@ -329,6 +530,9 @@ async function calculateAndDisplayCosts(editor) {
         } catch (err) {
             console.warn('Budget check failed:', err.message);
         }
+
+        // Keep the cost dashboard (if open) in sync with what we just calculated
+        await updateDashboard(document, validResourceCosts);
 
     } catch (error) {
         console.error('Error calculating Terraform costs:', error);

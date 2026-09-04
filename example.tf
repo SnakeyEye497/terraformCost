@@ -108,8 +108,38 @@ resource "aws_lb" "main" {
   internal           = false
   load_balancer_type = "application"
   subnets            = [aws_subnet.public.id]
-  
+
   tags = {
     Name = "Main ALB"
   }
+}
+
+# --- GCP resources (so the cost dashboard has more than one provider to chart) ---
+
+resource "google_compute_instance" "app_server" {
+  name         = "app-server"
+  machine_type = "n1-standard-1"
+  zone         = "us-central1-a"
+}
+
+resource "google_sql_database_instance" "analytics_db" {
+  name             = "analytics-db"
+  database_version = "POSTGRES_14"
+  tier             = "db-n1-standard-1"
+}
+
+# --- Azure resources ---
+
+resource "azurerm_linux_virtual_machine" "worker" {
+  name                = "worker-vm"
+  size                = "Standard_D2s_v3"
+  location            = "eastus"
+  resource_group_name = "example-rg"
+}
+
+resource "azurerm_sql_database" "reporting_db" {
+  name                = "reporting-db"
+  resource_group_name = "example-rg"
+  server_name         = "example-sql-server"
+  sku_name            = "Standard"
 }

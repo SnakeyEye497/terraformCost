@@ -121,8 +121,21 @@ Drop a `terraform.budget.json` in your workspace root (or any parent folder of y
 | `Terraform Cost: Refresh Cost Estimates` | Clears the cost cache and recalculates all open Terraform files |
 | `Terraform Cost: Toggle Cost Display` | Show/hide inline cost decorations |
 | `Terraform Cost: Toggle Total Cost Header` | Show/hide the total-cost header at the top of the file |
+| `Terraform Cost: Show Cost Dashboard` | Opens a visual dashboard (see below) for the active Terraform file |
 
 Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+
+## Cost dashboard
+
+`Terraform Cost: Show Cost Dashboard` (or the graph icon in a `.tf` file's editor toolbar) opens a webview panel with:
+
+- A **hero total** (monthly/yearly/hourly cost, resource + provider counts), animated on every update.
+- A **donut chart** — cost broken down by resource type (top 5 + "Other"), with a legend and a "View as table" toggle.
+- A **bar chart** — cost by cloud provider (AWS / GCP / Azure).
+- A **12-month forecast** — cumulative spend if usage stays flat vs. an illustrative ~5%/month growth scenario, with a hover crosshair/tooltip.
+- A **budget meter** (only shown when a `terraform.budget.json` applies to the file) showing spend against your configured limits.
+
+It's implemented as `src/cost-dashboard.js` (a `vscode.WebviewPanel`, vanilla HTML/CSS/SVG/JS — no chart library, no network calls) and stays in sync automatically: it re-renders whenever you edit/save the tracked file or switch to another Terraform file, reusing the same cost calculation the inline decorations use (see `buildDashboardAggregate` / `updateDashboard` in [extension.js](extension.js)). There's also a manual **Refresh** button in the panel itself.
 
 ## Development
 

@@ -60,8 +60,23 @@
         "command": "terraformCost.toggleTotalCostHeader",
         "title": "Toggle Total Cost Header",
         "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.showCostDashboard",
+        "title": "Show Cost Dashboard",
+        "category": "Terraform Cost",
+        "icon": "$(graph)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "terraformCost.showCostDashboard",
+          "when": "resourceLangId == terraform",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Terraform Cost Calculator",
       "properties": {

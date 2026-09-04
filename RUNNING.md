@@ -49,6 +49,13 @@ Open the Command Palette in the Dev Host window (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 | **Terraform Cost: Refresh Cost Estimates** | Clears the cost cache first, then recalculates everything open — use this after changing settings like currency or region |
 | **Terraform Cost: Toggle Cost Display** | Hides/shows the inline `💰 ...` decorations next to resources |
 | **Terraform Cost: Toggle Total Cost Header** | Hides/shows the summary line at the top of the file |
+| **Terraform Cost: Show Cost Dashboard** | Opens a webview with a cost-breakdown donut chart, a per-provider bar chart, and a 12-month forecast chart (plus a budget meter if `terraform.budget.json` applies) — see below |
+
+### Trying the cost dashboard
+
+1. With `example.tf` open and active, run **Terraform Cost: Show Cost Dashboard** (or click the graph icon at the top-right of the editor).
+2. It opens beside your file and fills in: total monthly/yearly/hourly cost, a donut of cost-by-resource-type, a bar chart of cost-by-provider (AWS/GCP/Azure — `example.tf` has all three), and a 12-month forecast chart. Hover the forecast chart for a tooltip; click "View as table" under a chart for an accessible table view.
+3. Edit/save `example.tf` (e.g. bump `instance_type` to `m5.xlarge`) — the dashboard updates itself, no need to re-run the command.
 
 You can also change settings live and watch it react: `Ctrl+,` → search "Terraform Cost" → try changing `terraformCost.currency` to `EUR` or `terraformCost.expensiveThreshold` to `10`, and switch back to your `.tf` file — it updates automatically.
 
