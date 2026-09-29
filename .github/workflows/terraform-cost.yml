@@ -1,0 +1,109 @@
+name: Terraform Cost Estimate
+
+# Comments the estimated monthly cost — and the delta vs. the PR's base
+# branch — on every pull request that touches a .tf file. Uses the same
+# parser + calculator the VS Code extension itself uses (via
+# scripts/ci-cost-report.js), so numbers here match what the extension shows
+# locally; it's the same engine, not a second implementation to drift out of
+# sync with the first.
+#
+# Estimates use the extension's built-in fallback pricing tables, not live
+# Infracost/cloud-provider pricing — treat this as a relative "did this PR
+# make things more or less expensive" signal, not an exact bill forecast.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.tf'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  cost-estimate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch (head)
+        uses: actions/checkout@v4
+        with:
+          path: head
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (head only — the CLI script only needs terraform-parser + cost-calculator, not the full extension)
+        working-directory: head
+        run: npm install --omit=dev --ignore-scripts
+
+      - name: Calculate cost — head (this PR)
+        working-directory: head
+        run: node scripts/ci-cost-report.js "$GITHUB_WORKSPACE/head" > "$GITHUB_WORKSPACE/head-cost.json"
+
+      - name: Calculate cost — base branch
+        working-directory: head
+        run: node scripts/ci-cost-report.js "$GITHUB_WORKSPACE/base" > "$GITHUB_WORKSPACE/base-cost.json"
+
+      - name: Post or update PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const head = JSON.parse(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/head-cost.json`, 'utf8'));
+            const base = JSON.parse(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/base-cost.json`, 'utf8'));
+
+            const fmt = (n) => `$${n.toFixed(2)}`;
+            const delta = Number((head.totalMonthly - base.totalMonthly).toFixed(2));
+            const sign = delta > 0 ? '+' : '';
+            const arrow = delta > 0.01 ? '📈' : delta < -0.01 ? '📉' : '➡️';
+
+            const providers = Object.entries(head.byProvider).sort((a, b) => b[1] - a[1]);
+            const providerLabel = { aws: 'AWS', gcp: 'Google Cloud', azure: 'Microsoft Azure' };
+            const providerRows = providers.length
+              ? providers.map(([p, v]) => `| ${providerLabel[p] || p} | ${fmt(v)}/mo |`).join('\n')
+              : '| _(none)_ | — |';
+
+            const marker = '<!-- matali-terraform-cost-comment -->';
+            const body = `${marker}
+            ## 💰 Terraform Cost Estimate
+
+            **${fmt(head.totalMonthly)}/mo** (base: ${fmt(base.totalMonthly)}/mo) — ${arrow} ${sign}${fmt(delta)}/mo
+
+            | Provider | Monthly |
+            |---|---|
+            ${providerRows}
+
+            ${head.resourceCount} cost-relevant resources across ${head.fileCount} file(s).
+
+            <sub>Estimated via built-in fallback pricing (same engine as the [Matali VS Code extension](https://github.com/${context.repo.owner}/${context.repo.repo})) — a relative signal, not a substitute for Infracost or real billing data.</sub>`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            const existing = comments.find((c) => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }

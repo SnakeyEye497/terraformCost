@@ -41,6 +41,12 @@ class CostDashboardPanel {
         this._panel = panel;
         this._disposables = [];
         this._onRefreshRequest = null;
+        this._onAskAiRequest = null;
+        this._onScopeChangeRequest = null;
+        this._onAskScalingRequest = null;
+        this._onEditCapacityRequest = null;
+        this._onExportRequest = null;
+        this._onRecordSnapshotRequest = null;
 
         this._panel.webview.html = this._getHtml(this._panel.webview);
 
@@ -50,6 +56,18 @@ class CostDashboardPanel {
             (message) => {
                 if ((message?.type === 'ready' || message?.type === 'refresh') && this._onRefreshRequest) {
                     this._onRefreshRequest();
+                } else if (message?.type === 'askAi' && this._onAskAiRequest) {
+                    this._onAskAiRequest();
+                } else if (message?.type === 'setScope' && this._onScopeChangeRequest) {
+                    this._onScopeChangeRequest(message.scope);
+                } else if (message?.type === 'askScaling' && this._onAskScalingRequest) {
+                    this._onAskScalingRequest();
+                } else if (message?.type === 'editCapacity' && this._onEditCapacityRequest) {
+                    this._onEditCapacityRequest();
+                } else if (message?.type === 'exportReport' && this._onExportRequest) {
+                    this._onExportRequest();
+                } else if (message?.type === 'recordSnapshot' && this._onRecordSnapshotRequest) {
+                    this._onRecordSnapshotRequest();
                 }
             },
             null,
@@ -66,9 +84,88 @@ class CostDashboardPanel {
         this._onRefreshRequest = callback;
     }
 
+    /**
+     * Register the callback invoked when the user clicks "Ask AI for
+     * suggestions" in the AI Cost Optimization card.
+     * @param {() => void} callback
+     */
+    onAskAiRequest(callback) {
+        this._onAskAiRequest = callback;
+    }
+
     /** Push a new data snapshot into the webview. */
     update(data) {
         this._panel.webview.postMessage({ type: 'data', payload: data });
+    }
+
+    /** Tell the webview an AI request is in flight (shows a spinner). */
+    setAiLoading(loading, provider) {
+        this._panel.webview.postMessage({ type: 'aiLoading', payload: { loading, provider } });
+    }
+
+    /** Push an AI suggestions result (or { error, provider } on failure). */
+    updateAiSuggestions(result) {
+        this._panel.webview.postMessage({ type: 'aiSuggestions', payload: result });
+    }
+
+    /**
+     * Register the callback invoked when the user clicks the "This file" /
+     * "Whole workspace" scope toggle. Called with 'file' or 'workspace'.
+     * @param {(scope: string) => void} callback
+     */
+    onScopeChangeRequest(callback) {
+        this._onScopeChangeRequest = callback;
+    }
+
+    /** Tell the webview a workspace scan is in flight (shows a scanning indicator). */
+    setScanning(loading) {
+        this._panel.webview.postMessage({ type: 'scanning', payload: { loading } });
+    }
+
+    /**
+     * Register the callback invoked when the user clicks "Get scaling
+     * suggestions" in the Capacity & Scaling card.
+     * @param {() => void} callback
+     */
+    onAskScalingRequest(callback) {
+        this._onAskScalingRequest = callback;
+    }
+
+    /**
+     * Register the callback invoked when the user clicks "Edit inputs" in
+     * the Capacity & Scaling card.
+     * @param {() => void} callback
+     */
+    onEditCapacityRequest(callback) {
+        this._onEditCapacityRequest = callback;
+    }
+
+    /**
+     * Register the callback invoked when the user clicks "Export report"
+     * in the topbar.
+     * @param {() => void} callback
+     */
+    onExportRequest(callback) {
+        this._onExportRequest = callback;
+    }
+
+    /**
+     * Register the callback invoked when the user clicks "Record snapshot"
+     * in the Cost History card.
+     * @param {() => void} callback
+     */
+    onRecordSnapshotRequest(callback) {
+        this._onRecordSnapshotRequest = callback;
+    }
+
+    /** Tell the webview a scaling-suggestions request is in flight. */
+    setScalingLoading(loading, provider) {
+        this._panel.webview.postMessage({ type: 'scalingLoading', payload: { loading, provider } });
+    }
+
+    /** Push a scaling suggestions result (or { error, provider } on failure). */
+    updateScalingSuggestions(result) {
+        this._panel.webview.postMessage({ type: 'scalingSuggestions', payload: result });
     }
 
     reveal() {
@@ -181,6 +278,11 @@ body {
 .topbar h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
 .topbar .subtitle { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
+.scope-toggle { display: inline-flex; background: var(--gridline); border-radius: 8px; padding: 2px; gap: 2px; }
+.scope-btn { appearance: none; border: none; background: transparent; color: var(--text-secondary); font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+.scope-btn.active { background: var(--surface-1); color: var(--text-primary); box-shadow: var(--card-shadow); }
+.scope-btn:hover:not(.active) { color: var(--text-primary); }
+.scope-btn:disabled { opacity: 0.5; cursor: default; }
 .updated-at { font-size: 11px; color: var(--text-muted); }
 .btn-refresh {
     appearance: none; border: 1px solid var(--border); background: var(--surface-1);
@@ -269,20 +371,58 @@ table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums;
 .forecast-legend .item { display: flex; align-items: center; gap: 6px; }
 .forecast-legend .swatch { width: 16px; height: 3px; border-radius: 2px; }
 .forecast-wrap { position: relative; }
-#forecast-tooltip {
+.chart-tooltip {
     position: absolute; pointer-events: none; opacity: 0; transition: opacity .12s;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
     padding: 7px 10px; font-size: 11px; box-shadow: var(--card-shadow); white-space: nowrap; z-index: 5;
 }
-#forecast-tooltip .t-month { color: var(--text-muted); margin-bottom: 3px; }
-#forecast-tooltip .t-row { display: flex; align-items: center; gap: 6px; }
-#forecast-tooltip .t-dot { width: 8px; height: 8px; border-radius: 50%; }
+.chart-tooltip .t-month { color: var(--text-muted); margin-bottom: 3px; }
+.chart-tooltip .t-row { display: flex; align-items: center; gap: 6px; }
+.chart-tooltip .t-dot { width: 8px; height: 8px; border-radius: 50%; }
 .forecast-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
 
 .footer-note { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 28px; }
 
 #dashboard-content { display: none; }
 #dashboard-content.show { display: block; }
+
+/* ---------- AI suggestions ---------- */
+.card:nth-of-type(4) { animation-delay: .24s; }
+.card:nth-of-type(5) { animation-delay: .30s; }
+.card:nth-of-type(6) { animation-delay: .36s; }
+.ai-provider-badge { font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--gridline); padding: 3px 9px; border-radius: 999px; }
+.ai-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 6px 0 2px; }
+.ai-empty p { margin: 0; font-size: 12px; color: var(--text-secondary); max-width: 520px; }
+.btn-ask-ai {
+    appearance: none; border: none; border-radius: 8px; padding: 9px 16px; font-size: 12px; font-weight: 600;
+    color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--slot-1), var(--slot-5));
+    box-shadow: var(--card-shadow); transition: transform .15s ease;
+}
+.btn-ask-ai:hover { transform: translateY(-1px); }
+.btn-ask-ai:active { transform: translateY(0); }
+.ai-loading { display: flex; align-items: center; gap: 10px; padding: 18px 0; font-size: 12px; color: var(--text-secondary); }
+.ai-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--gridline); border-top-color: var(--slot-1); animation: spin .8s linear infinite; flex: 0 0 auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ai-error { font-size: 12px; color: var(--critical); padding: 10px 0; }
+.ai-results { display: grid; gap: 10px; }
+.ai-none { font-size: 12px; color: var(--text-muted); margin: 0; }
+.ai-suggestion { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: color-mix(in srgb, var(--slot-1) 4%, var(--surface-1)); }
+.ai-suggestion-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ai-resource { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.ai-category { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); background: var(--gridline); padding: 2px 7px; border-radius: 999px; }
+.ai-savings { font-size: 11px; font-weight: 700; color: var(--good); margin-left: auto; }
+.ai-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.ai-file-tag { font-size: 10.5px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-bottom: 6px; }
+
+/* ---------- Capacity & scaling ---------- */
+.capacity-summary { font-size: 12px; color: var(--text-secondary); background: var(--gridline); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+.scaling-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-secondary { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); box-shadow: none; }
+.action-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+.action-scale_up { background: color-mix(in srgb, var(--warning) 20%, transparent); color: var(--warning); }
+.action-scale_down { background: color-mix(in srgb, var(--good) 20%, transparent); color: var(--good); }
+.action-keep { background: var(--gridline); color: var(--text-muted); }
+.scaling-change { font-size: 11.5px; font-weight: 600; color: var(--text-primary); margin-left: auto; }
 `;
 
 // ---------------------------------------------------------------------------
@@ -296,7 +436,15 @@ const BODY = `
             <div class="subtitle" id="file-name">—</div>
         </div>
         <div class="topbar-actions">
+            <div class="scope-toggle" id="scope-toggle" role="tablist">
+                <button class="scope-btn active" data-scope="file" title="Costs for the active file only">This file</button>
+                <button class="scope-btn" data-scope="workspace" title="Costs across every .tf file in the workspace">Whole workspace</button>
+            </div>
             <span class="updated-at" id="updated-at"></span>
+            <button class="btn-refresh" id="export-btn" title="Export a multi-sheet .xlsx cost report">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+                Export
+            </button>
             <button class="btn-refresh" id="refresh-btn" title="Recalculate now">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
                 Refresh
@@ -321,6 +469,7 @@ const BODY = `
                 <div class="stat-tile"><div class="label">Hourly</div><div class="value" id="stat-hourly">$0</div></div>
                 <div class="stat-tile"><div class="label">Resources</div><div class="value" id="stat-resources">0</div></div>
                 <div class="stat-tile"><div class="label">Providers</div><div class="value" id="stat-providers">0</div></div>
+                <div class="stat-tile" id="stat-files-tile" style="display:none;"><div class="label">Files scanned</div><div class="value" id="stat-files">0</div></div>
             </div>
         </div>
 
@@ -370,6 +519,18 @@ const BODY = `
                 </table>
             </div>
 
+            <div class="card full" id="by-file-card" style="display:none;">
+                <div class="card-head">
+                    <h3>Cost by file / module</h3>
+                    <button class="toggle-table" data-target="file">View as table</button>
+                </div>
+                <div class="provider-bars" id="file-bars"></div>
+                <table class="data-table" id="file-table">
+                    <thead><tr><th>File</th><th>Resources</th><th>Monthly</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
             <div class="card full">
                 <div class="card-head">
                     <h3>12-month cost forecast</h3>
@@ -380,9 +541,61 @@ const BODY = `
                 </div>
                 <div class="forecast-wrap">
                     <svg id="forecast-svg" viewBox="0 0 640 260" width="100%" height="260"></svg>
-                    <div id="forecast-tooltip"></div>
+                    <div id="forecast-tooltip" class="chart-tooltip"></div>
                 </div>
                 <div class="forecast-note">Illustrative projection from the current monthly total — not a guarantee of future spend.</div>
+            </div>
+
+            <div class="card full" id="history-card" style="display:none;">
+                <div class="card-head">
+                    <h3>📊 Cost history</h3>
+                    <button class="btn-ask-ai btn-secondary" id="record-snapshot-btn" style="padding:5px 12px;font-size:11px;">Record snapshot</button>
+                </div>
+                <div id="history-empty" class="ai-empty" style="display:none;">
+                    <p>Real recorded totals over time, not a projection — run <strong>Terraform Cost: Record Cost Snapshot</strong> (or the button above) periodically to build a trend.</p>
+                </div>
+                <div id="history-chart-wrap" class="forecast-wrap" style="display:none;">
+                    <svg id="history-svg" viewBox="0 0 640 220" width="100%" height="220"></svg>
+                    <div id="history-tooltip" class="chart-tooltip"></div>
+                </div>
+            </div>
+
+            <div class="card full" id="ai-card">
+                <div class="card-head">
+                    <h3>✨ AI cost optimization suggestions</h3>
+                    <span class="ai-provider-badge" id="ai-provider-badge"></span>
+                </div>
+                <div id="ai-empty" class="ai-empty">
+                    <p id="ai-empty-text">Get concrete, resource-specific suggestions for cutting this file's cost — rightsizing, reserved capacity, storage tiers, architecture swaps.</p>
+                    <button class="btn-ask-ai" id="ask-ai-btn">✨ Ask AI for suggestions</button>
+                </div>
+                <div id="ai-loading" class="ai-loading" style="display:none;">
+                    <div class="ai-spinner"></div>
+                    <span id="ai-loading-text">Asking AI…</span>
+                </div>
+                <div id="ai-results" class="ai-results" style="display:none;"></div>
+                <div id="ai-error" class="ai-error" style="display:none;"></div>
+            </div>
+
+            <div class="card full" id="scaling-card">
+                <div class="card-head">
+                    <h3>📈 Capacity &amp; scaling suggestions</h3>
+                    <span class="ai-provider-badge" id="scaling-provider-badge"></span>
+                </div>
+                <div class="capacity-summary" id="capacity-summary" style="display:none;"></div>
+                <div id="scaling-empty" class="ai-empty">
+                    <p id="scaling-empty-text">Tell it your expected load — users/day, requests/day — and get AI-reasoned scale up/down suggestions for these resources, not just cost ones.</p>
+                    <div class="scaling-actions">
+                        <button class="btn-ask-ai btn-secondary" id="edit-capacity-btn">Set capacity inputs</button>
+                        <button class="btn-ask-ai" id="ask-scaling-btn">📈 Get scaling suggestions</button>
+                    </div>
+                </div>
+                <div id="scaling-loading" class="ai-loading" style="display:none;">
+                    <div class="ai-spinner"></div>
+                    <span id="scaling-loading-text">Asking AI…</span>
+                </div>
+                <div id="scaling-results" class="ai-results" style="display:none;"></div>
+                <div id="scaling-error" class="ai-error" style="display:none;"></div>
             </div>
         </div>
 
@@ -445,6 +658,14 @@ const JS = `
         document.getElementById('stat-hourly').textContent = fmtMoney(data.totals.hourly, data.currency);
         document.getElementById('stat-resources').textContent = data.resourceCount;
         document.getElementById('stat-providers').textContent = data.byProvider.length;
+
+        const filesTile = document.getElementById('stat-files-tile');
+        if (data.scope === 'workspace') {
+            filesTile.style.display = '';
+            document.getElementById('stat-files').textContent = data.fileCount;
+        } else {
+            filesTile.style.display = 'none';
+        }
     }
 
     // ---- budget meter ---------------------------------------------------
@@ -556,6 +777,34 @@ const JS = `
         });
     }
 
+    // ---- cost by file/module (workspace scope only) -------------------------
+    function renderByFile(data) {
+        const wrap = document.getElementById('file-bars');
+        wrap.innerHTML = '';
+        const tbody = document.querySelector('#file-table tbody');
+        tbody.innerHTML = '';
+        const files = data.byFile || [];
+        const max = Math.max(1, ...files.map((f) => f.monthly));
+        files.forEach((f, i) => {
+            const color = SLOTS[i % SLOTS.length];
+            const row = document.createElement('div');
+            row.className = 'provider-row';
+            row.innerHTML =
+                '<div class="row-top"><span class="pname"><span class="dot" style="background:' + color + '"></span>' + escapeHtml(f.file) + '</span>' +
+                '<span class="pval">' + fmtMoney(f.monthly, data.currency) + '/mo</span></div>' +
+                '<div class="bar-track"><div class="bar-fill" style="background:' + color + '"></div></div>' +
+                '<div class="row-sub">' + f.count + ' resource' + (f.count === 1 ? '' : 's') + '</div>';
+            wrap.appendChild(row);
+            requestAnimationFrame(() => {
+                row.querySelector('.bar-fill').style.width = Math.max(4, (f.monthly / max) * 100) + '%';
+            });
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + escapeHtml(f.file) + '</td><td class="num">' + f.count + '</td><td class="num">' + fmtMoney(f.monthly, data.currency) + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
     // ---- forecast chart -----------------------------------------------------
     function renderForecast(data) {
         const svg = document.getElementById('forecast-svg');
@@ -648,29 +897,139 @@ const JS = `
         });
     }
 
+    // ---- cost history (real recorded snapshots, not a projection) --------
+    function renderCostHistory(data) {
+        const history = data.costHistory || [];
+        const card = document.getElementById('history-card');
+        const empty = document.getElementById('history-empty');
+        const chartWrap = document.getElementById('history-chart-wrap');
+
+        if (history.length === 0) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+
+        if (history.length === 1) {
+            empty.style.display = 'flex';
+            chartWrap.style.display = 'none';
+            return;
+        }
+        empty.style.display = 'none';
+        chartWrap.style.display = '';
+
+        const svg = document.getElementById('history-svg');
+        const tooltip = document.getElementById('history-tooltip');
+        const sorted = [...history].sort((a, b) => a.timestamp - b.timestamp);
+        const values = sorted.map((h) => h.totalMonthly);
+
+        const W = 640, H = 220, PAD_L = 46, PAD_R = 16, PAD_T = 14, PAD_B = 26;
+        const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+        const maxVal = Math.max(...values, 1);
+        const niceMax = Math.ceil(maxVal / 4) * 4 || 1;
+
+        const xAt = (i) => PAD_L + (sorted.length === 1 ? 0 : (i / (sorted.length - 1)) * innerW);
+        const yAt = (v) => PAD_T + innerH - (v / niceMax) * innerH;
+        const pathFor = (vals) => vals.map((v, i) => (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ' ' + yAt(v).toFixed(1)).join(' ');
+
+        let svgHtml = '';
+        for (let s = 0; s <= 4; s++) {
+            const v = (niceMax / 4) * s;
+            const y = yAt(v);
+            svgHtml += '<line x1="' + PAD_L + '" x2="' + (W - PAD_R) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="var(--gridline)" stroke-width="1"/>';
+            svgHtml += '<text x="' + (PAD_L - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + fmtCompact(v, data.currency) + '</text>';
+        }
+        // A handful of evenly-spaced date labels, not one per point (could be many)
+        const labelCount = Math.min(sorted.length, 6);
+        for (let i = 0; i < labelCount; i++) {
+            const idx = Math.round((i / (labelCount - 1 || 1)) * (sorted.length - 1));
+            svgHtml += '<text x="' + xAt(idx).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + formatShortDate(sorted[idx].timestamp) + '</text>';
+        }
+
+        svgHtml += '<path d="' + pathFor(values) + '" fill="none" stroke="var(--slot-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+        sorted.forEach((h, i) => {
+            svgHtml += '<circle cx="' + xAt(i).toFixed(1) + '" cy="' + yAt(h.totalMonthly).toFixed(1) + '" r="3.5" fill="var(--slot-1)" stroke="var(--surface-1)" stroke-width="1.5"/>';
+        });
+
+        svgHtml += '<line id="hist-crosshair" x1="0" x2="0" y1="' + PAD_T + '" y2="' + (H - PAD_B) + '" stroke="var(--baseline)" stroke-width="1" opacity="0"/>';
+        svgHtml += '<rect id="hist-hitrect" x="' + PAD_L + '" y="' + PAD_T + '" width="' + innerW + '" height="' + innerH + '" fill="transparent"/>';
+
+        svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+        svg.innerHTML = svgHtml;
+
+        const hitrect = svg.querySelector('#hist-hitrect');
+        const crosshair = svg.querySelector('#hist-crosshair');
+        hitrect.addEventListener('mousemove', (e) => {
+            const rect = svg.getBoundingClientRect();
+            const scale = W / rect.width;
+            const mx = (e.clientX - rect.left) * scale;
+            let idx = Math.round(((mx - PAD_L) / innerW) * (sorted.length - 1));
+            idx = Math.max(0, Math.min(sorted.length - 1, idx));
+            const x = xAt(idx);
+            crosshair.setAttribute('x1', x); crosshair.setAttribute('x2', x); crosshair.setAttribute('opacity', '1');
+
+            const point = sorted[idx];
+            tooltip.innerHTML =
+                '<div class="t-month">' + formatFullDate(point.timestamp) + '</div>' +
+                '<div class="t-row"><span class="t-dot" style="background:var(--slot-1)"></span>' + fmtMoney(point.totalMonthly, data.currency) + '/mo</div>' +
+                '<div class="t-row">' + escapeHtml(point.label || '') + ' · ' + point.resourceCount + ' resources</div>';
+            tooltip.style.opacity = '1';
+            const wrapRect = svg.parentElement.getBoundingClientRect();
+            let left = (e.clientX - wrapRect.left) + 14;
+            if (left + 160 > wrapRect.width) left = (e.clientX - wrapRect.left) - 170;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = Math.max(0, (e.clientY - wrapRect.top) - 50) + 'px';
+        });
+        hitrect.addEventListener('mouseleave', () => {
+            crosshair.setAttribute('opacity', '0');
+            tooltip.style.opacity = '0';
+        });
+    }
+
+    function formatShortDate(ts) {
+        const d = new Date(ts);
+        return (d.getMonth() + 1) + '/' + d.getDate();
+    }
+
+    function formatFullDate(ts) {
+        return new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    document.getElementById('record-snapshot-btn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'recordSnapshot' });
+    });
+
     // ---- table toggles -----------------------------------------------------
+    const TABLE_TOGGLE_TARGETS = {
+        type: { table: 'type-table', chartEls: ['donut-visual', 'donut-legend'] },
+        provider: { table: 'provider-table', chartEls: ['provider-bars'] },
+        file: { table: 'file-table', chartEls: ['file-bars'] }
+    };
+
     document.querySelectorAll('.toggle-table').forEach((btn) => {
         btn.addEventListener('click', () => {
-            const target = btn.dataset.target;
-            const isTable = target === 'type'
-                ? document.getElementById('type-table').classList.contains('show')
-                : document.getElementById('provider-table').classList.contains('show');
-            if (target === 'type') {
-                document.getElementById('type-table').classList.toggle('show', !isTable);
-                document.getElementById('donut-visual').classList.toggle('hidden-by-table', !isTable);
-                document.getElementById('donut-legend').classList.toggle('hidden-by-table', !isTable);
-            } else {
-                document.getElementById('provider-table').classList.toggle('show', !isTable);
-                document.getElementById('provider-bars').classList.toggle('hidden-by-table', !isTable);
-            }
+            const cfg = TABLE_TOGGLE_TARGETS[btn.dataset.target];
+            if (!cfg) return;
+            const tableEl = document.getElementById(cfg.table);
+            const isTable = tableEl.classList.contains('show');
+            tableEl.classList.toggle('show', !isTable);
+            cfg.chartEls.forEach((id) => document.getElementById(id).classList.toggle('hidden-by-table', !isTable));
             btn.textContent = isTable ? 'View as table' : 'View as chart';
         });
     });
 
     function render(data) {
+        setScopeButtons(data && data.scope);
+        renderAiScopeText(data && data.scope);
+
         if (!data || data.empty) {
             showEmpty(true);
             current = null;
+            document.getElementById('file-name').textContent = data && data.scope === 'workspace'
+                ? 'No .tf files with resources found in this workspace'
+                : data && data.scope === 'plan'
+                ? 'This plan has no resources that will exist after applying it'
+                : '—';
             return;
         }
         showEmpty(false);
@@ -679,18 +1038,198 @@ const JS = `
         renderDonut(data);
         renderProviders(data);
         renderForecast(data);
-        document.getElementById('file-name').textContent = data.fileName || '';
+        renderCostHistory(data);
+
+        const byFileCard = document.getElementById('by-file-card');
+        if (data.scope === 'workspace' && data.byFile) {
+            byFileCard.style.display = '';
+            renderByFile(data);
+        } else {
+            byFileCard.style.display = 'none';
+        }
+
+        renderCapacitySummary(data);
+
+        document.getElementById('file-name').textContent = data.scope === 'workspace'
+            ? data.fileCount + ' file' + (data.fileCount === 1 ? '' : 's') + ' scanned'
+            : data.scope === 'plan'
+            ? '📋 Terraform plan: ' + (data.planFileName || '')
+            : (data.fileName || '');
         document.getElementById('updated-at').textContent = 'Updated ' + new Date(data.generatedAt).toLocaleTimeString();
         current = data;
     }
 
+    // ---- AI/scaling card text reflects the active scope ------------------
+    function renderAiScopeText(scope) {
+        const scopeWord = scope === 'workspace' ? 'the whole workspace' : scope === 'plan' ? 'this plan' : 'this file';
+        document.getElementById('ai-empty-text').textContent =
+            'Get concrete, resource-specific suggestions for cutting ' + scopeWord + "'s cost — rightsizing, reserved capacity, storage tiers, architecture swaps.";
+        document.getElementById('scaling-empty-text').textContent =
+            'Tell it your expected load — users/day, requests/day — and get AI-reasoned scale up/down suggestions for ' + scopeWord + "'s resources, not just cost ones.";
+    }
+
+    // ---- scope toggle ---------------------------------------------------
+    function setScopeButtons(scope) {
+        document.querySelectorAll('.scope-btn').forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.scope === (scope || 'file'));
+        });
+    }
+
+    document.querySelectorAll('.scope-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (btn.classList.contains('active')) return;
+            setScopeButtons(btn.dataset.scope);
+            vscode.postMessage({ type: 'setScope', scope: btn.dataset.scope });
+        });
+    });
+
+    // ---- AI cost suggestions + capacity/scaling suggestions ---------------
+    // Both cards are the same empty/loading/results/error state machine over
+    // a differently-shaped result list, so they share setCardState() and
+    // only their per-item render function differs.
+    const AI_PROVIDER_LABELS = { gemini: 'Gemini', claude: 'Claude', openai: 'GPT', deepseek: 'DeepSeek', groq: 'Groq' };
+    const CARD_DISPLAY_FOR_STATE = { empty: 'flex', loading: 'flex', results: 'grid', error: 'block' };
+
+    function setCardState(prefix, state, payload, renderResults) {
+        const els = {
+            empty: document.getElementById(prefix + '-empty'),
+            loading: document.getElementById(prefix + '-loading'),
+            results: document.getElementById(prefix + '-results'),
+            error: document.getElementById(prefix + '-error')
+        };
+        Object.keys(els).forEach((k) => {
+            els[k].style.display = (k === state) ? CARD_DISPLAY_FOR_STATE[k] : 'none';
+        });
+
+        if (state === 'loading') {
+            document.getElementById(prefix + '-loading-text').textContent =
+                'Asking ' + (AI_PROVIDER_LABELS[payload && payload.provider] || 'AI') + ' for suggestions…';
+        } else if (state === 'error') {
+            els.error.textContent = '⚠️ ' + ((payload && payload.error) || 'Something went wrong.');
+        } else if (state === 'results') {
+            renderResults(payload);
+        }
+    }
+
+    function renderAiResults(payload) {
+        document.getElementById('ai-provider-badge').textContent = AI_PROVIDER_LABELS[payload.provider] || '';
+        const wrap = document.getElementById('ai-results');
+        wrap.innerHTML = '';
+        const list = payload.suggestions || [];
+        if (list.length === 0) {
+            wrap.innerHTML = '<p class="ai-none">No specific suggestions — this configuration already looks reasonably optimized.</p>';
+            return;
+        }
+        const currency = current ? current.currency : 'USD';
+        list.forEach((s) => {
+            const card = document.createElement('div');
+            card.className = 'ai-suggestion';
+            const savings = (typeof s.estimatedMonthlySavings === 'number' && s.estimatedMonthlySavings > 0)
+                ? '<span class="ai-savings">save ~' + fmtMoney(s.estimatedMonthlySavings, currency) + '/mo</span>'
+                : '';
+            const fileTag = s.sourceFile
+                ? '<div class="ai-file-tag">📄 ' + escapeHtml(s.sourceFile) + '</div>'
+                : '';
+            card.innerHTML =
+                '<div class="ai-suggestion-head">' +
+                    '<span class="ai-resource">' + escapeHtml(s.resource || 'General') + '</span>' +
+                    '<span class="ai-category">' + escapeHtml(s.category || 'other') + '</span>' +
+                    savings +
+                '</div>' +
+                fileTag +
+                '<p class="ai-text">' + escapeHtml(s.suggestion || '') + '</p>';
+            wrap.appendChild(card);
+        });
+    }
+
+    const ACTION_LABELS = { scale_up: 'Scale up', scale_down: 'Scale down', keep: 'Keep as-is' };
+
+    function renderScalingResults(payload) {
+        document.getElementById('scaling-provider-badge').textContent = AI_PROVIDER_LABELS[payload.provider] || '';
+        const wrap = document.getElementById('scaling-results');
+        wrap.innerHTML = '';
+        const list = (payload.suggestions || []).filter((s) => s.action !== 'keep' || s.reasoning);
+        if (list.length === 0) {
+            wrap.innerHTML = '<p class="ai-none">No sizing mismatches found for the load you described.</p>';
+            return;
+        }
+        list.forEach((s) => {
+            const card = document.createElement('div');
+            card.className = 'ai-suggestion';
+            const change = s.suggestedChange
+                ? '<span class="scaling-change">' + escapeHtml(s.suggestedChange) + '</span>'
+                : '';
+            const fileTag = s.sourceFile
+                ? '<div class="ai-file-tag">📄 ' + escapeHtml(s.sourceFile) + '</div>'
+                : '';
+            card.innerHTML =
+                '<div class="ai-suggestion-head">' +
+                    '<span class="ai-resource">' + escapeHtml(s.resource || 'General') + '</span>' +
+                    '<span class="action-badge action-' + (s.action || 'keep') + '">' + (ACTION_LABELS[s.action] || 'Keep as-is') + '</span>' +
+                    change +
+                '</div>' +
+                fileTag +
+                '<p class="ai-text">' + escapeHtml(s.reasoning || '') + '</p>';
+            wrap.appendChild(card);
+        });
+    }
+
+    function renderCapacitySummary(data) {
+        const el = document.getElementById('capacity-summary');
+        const c = data.capacityConfig;
+        if (!c || Object.keys(c).length === 0) {
+            el.style.display = 'none';
+            return;
+        }
+        const parts = [];
+        if (c.expected_users != null) parts.push(c.expected_users.toLocaleString() + ' users');
+        if (c.requests_per_day != null) parts.push(c.requests_per_day.toLocaleString() + ' req/day');
+        if (c.peak_requests_per_second != null) parts.push(c.peak_requests_per_second + ' req/s peak');
+        if (c.growth_rate_percent != null) parts.push('+' + c.growth_rate_percent + '%/mo growth');
+        el.textContent = parts.length ? parts.join(' · ') : '';
+        el.style.display = parts.length ? 'block' : 'none';
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    document.getElementById('ask-ai-btn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'askAi' });
+    });
+
+    document.getElementById('ask-scaling-btn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'askScaling' });
+    });
+
+    document.getElementById('edit-capacity-btn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'editCapacity' });
+    });
+
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg && msg.type === 'data') render(msg.payload);
+        else if (msg && msg.type === 'aiLoading') setCardState('ai', 'loading', msg.payload, renderAiResults);
+        else if (msg && msg.type === 'aiSuggestions') {
+            setCardState('ai', msg.payload && msg.payload.error ? 'error' : 'results', msg.payload, renderAiResults);
+        } else if (msg && msg.type === 'scalingLoading') setCardState('scaling', 'loading', msg.payload, renderScalingResults);
+        else if (msg && msg.type === 'scalingSuggestions') {
+            setCardState('scaling', msg.payload && msg.payload.error ? 'error' : 'results', msg.payload, renderScalingResults);
+        } else if (msg && msg.type === 'scanning') {
+            const scanning = msg.payload && msg.payload.loading;
+            document.getElementById('updated-at').textContent = scanning ? 'Scanning workspace…' : document.getElementById('updated-at').textContent;
+            document.querySelectorAll('.scope-btn').forEach((btn) => { btn.disabled = !!scanning; });
+        }
     });
 
     document.getElementById('refresh-btn').addEventListener('click', () => {
         vscode.postMessage({ type: 'refresh' });
+    });
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+        vscode.postMessage({ type: 'exportReport' });
     });
 
     vscode.postMessage({ type: 'ready' });

@@ -66,6 +66,67 @@
         "title": "Show Cost Dashboard",
         "category": "Terraform Cost",
         "icon": "$(graph)"
+      },
+      {
+        "command": "terraformCost.showWorkspaceCostDashboard",
+        "title": "Show Workspace Cost Dashboard",
+        "category": "Terraform Cost",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "terraformCost.getAiSuggestions",
+        "title": "Get AI Cost Optimization Suggestions",
+        "category": "Terraform Cost",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "terraformCost.setAiApiKey",
+        "title": "Set AI Provider API Key",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.clearAiApiKey",
+        "title": "Clear AI Provider API Key",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.getScalingSuggestions",
+        "title": "Get Scaling Suggestions",
+        "category": "Terraform Cost",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "terraformCost.setCapacityConfig",
+        "title": "Set Capacity & Scaling Inputs",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.exportCostReport",
+        "title": "Export Cost Report (Excel)",
+        "category": "Terraform Cost",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "terraformCost.setBudgetWebhook",
+        "title": "Set Budget Alert Webhook (Slack/Teams)",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.clearBudgetWebhook",
+        "title": "Clear Budget Alert Webhook",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.calculateFromPlan",
+        "title": "Calculate Costs from Terraform Plan",
+        "category": "Terraform Cost",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "terraformCost.recordCostSnapshot",
+        "title": "Record Cost Snapshot",
+        "category": "Terraform Cost",
+        "icon": "$(history)"
       }
     ],
     "menus": {
@@ -163,6 +224,43 @@
           "type": "number",
           "default": 100,
           "description": "Monthly cost threshold (in USD) to highlight expensive resources"
+        },
+        "terraformCost.ai.provider": {
+          "type": "string",
+          "default": "none",
+          "enum": [
+            "none",
+            "gemini",
+            "claude",
+            "openai",
+            "deepseek",
+            "groq"
+          ],
+          "enumDescriptions": [
+            "AI suggestions disabled",
+            "Google Gemini",
+            "Anthropic Claude",
+            "OpenAI GPT",
+            "DeepSeek (low-cost, no minimum spend)",
+            "Groq (free tier, no card required)"
+          ],
+          "description": "AI provider used for cost optimization suggestions. Set an API key first via the 'Terraform Cost: Set AI Provider API Key' command — keys are stored securely (VS Code SecretStorage), never in settings."
+        },
+        "terraformCost.ai.model": {
+          "type": "string",
+          "default": "",
+          "description": "Override the model id used for AI suggestions (e.g. 'gemini-flash-latest', 'claude-sonnet-5', 'gpt-4o-mini'). Leave blank to use the provider's default."
+        },
+        "terraformCost.notifications.provider": {
+          "type": "string",
+          "default": "none",
+          "enum": ["none", "slack", "teams"],
+          "enumDescriptions": [
+            "Budget alert webhooks disabled",
+            "Slack incoming webhook",
+            "Microsoft Teams incoming webhook"
+          ],
+          "description": "Chat platform for budget threshold alerts. Set the webhook URL first via the 'Terraform Cost: Set Budget Alert Webhook' command — stored securely (VS Code SecretStorage), never in settings."
         }
       }
     },
@@ -191,12 +289,13 @@
     "watch": "webpack --mode development --watch"
   },
   "dependencies": {
-    "debounce": "^2.0.0"
+    "debounce": "^2.0.0",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
-    "@types/node": "^20.x",
     "@types/mocha": "^10.0.6",
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.9",
     "eslint": "^8.56.0",
     "mocha": "^10.2.0",

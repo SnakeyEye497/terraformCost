@@ -1,0 +1,6 @@
+{
+  "expected_users": 300,
+  "requests_per_day": 1200,
+  "peak_requests_per_second": 4,
+  "growth_rate_percent": 50
+}

@@ -345,37 +345,7 @@ class TerraformParser {
     }
 
     getProviderFromResourceType(resourceType) {
-        // AWS
-        if (resourceType.startsWith('aws_')) return 'aws';
-        
-        // GCP
-        if (resourceType.startsWith('google_') || 
-            resourceType.startsWith('gcp_')) return 'gcp';
-        
-        // Azure
-        if (resourceType.startsWith('azurerm_') || 
-            resourceType.startsWith('azure_')) return 'azure';
-        
-        // Alibaba Cloud
-        if (resourceType.startsWith('alicloud_')) return 'alicloud';
-        
-        // DigitalOcean
-        if (resourceType.startsWith('digitalocean_')) return 'digitalocean';
-        
-        // Common pattern matching
-        const patterns = {
-            aws: ['ec2', 's3', 'rds', 'lambda', 'dynamodb', 'cloudfront'],
-            gcp: ['compute', 'storage', 'sql', 'functions', 'pubsub'],
-            azure: ['vm', 'sql', 'storage', 'app_service']
-        };
-
-        for (const [provider, keywords] of Object.entries(patterns)) {
-            if (keywords.some(keyword => resourceType.includes(keyword))) {
-                return provider;
-            }
-        }
-        
-        return 'unknown';
+        return getProviderFromResourceType(resourceType);
     }
 
     getLineNumber(text, index) {
@@ -408,10 +378,16 @@ class TerraformParser {
         return costRelevantTypes.includes(resourceType);
     }
 
-    resolveVariableReferences(resources, variables) {
-        // Simple variable resolution
+    /**
+     * Merges a variable block list's own `default` values with an explicit
+     * overrides map (e.g. values a calling `module "x" { ... }` block passed
+     * in) — overrides always win. Pulled out of resolveVariableReferences so
+     * module-resolver.js can compute "what does var.x resolve to in this
+     * directory" without duplicating the merge logic.
+     */
+    computeVariableValues(variables, overrides = {}) {
         const variableValues = {};
-        
+
         for (const variable of variables) {
             const defaultValue = variable.attributes.default;
             if (defaultValue !== undefined) {
@@ -419,10 +395,30 @@ class TerraformParser {
             }
         }
 
+        for (const [name, value] of Object.entries(overrides)) {
+            if (value !== undefined) {
+                variableValues[name] = value;
+            }
+        }
+
+        return variableValues;
+    }
+
+    /**
+     * @param {Array} resources
+     * @param {Array} variables
+     * @param {Object} [overrides] - values that take precedence over a
+     *   variable's own default — e.g. what a calling module block passed in.
+     *   Omit for the plain "resolve this file's own variables" case (the
+     *   original behavior, unchanged for every existing caller).
+     */
+    resolveVariableReferences(resources, variables, overrides = {}) {
+        const variableValues = this.computeVariableValues(variables, overrides);
+
         // Replace variable references in resources
         for (const resource of resources) {
             for (const [key, value] of Object.entries(resource.attributes)) {
-                if (typeof value === 'object' && value._ref === 'variable') {
+                if (value !== null && typeof value === 'object' && value._ref === 'variable') {
                     const varName = value.name;
                     if (variableValues[varName] !== undefined) {
                         resource.attributes[key] = variableValues[varName];
@@ -460,4 +456,46 @@ class TerraformParser {
     }
 }
 
+/**
+ * Pulled out to a standalone function (the class method above just
+ * delegates to it) so other modules — plan-parser.js, which builds resource
+ * objects from `terraform show -json` output rather than parsing HCL text —
+ * can reuse the exact same provider-detection heuristic without either
+ * duplicating it or needing a full TerraformParser instance.
+ */
+function getProviderFromResourceType(resourceType) {
+    // AWS
+    if (resourceType.startsWith('aws_')) return 'aws';
+
+    // GCP
+    if (resourceType.startsWith('google_') ||
+        resourceType.startsWith('gcp_')) return 'gcp';
+
+    // Azure
+    if (resourceType.startsWith('azurerm_') ||
+        resourceType.startsWith('azure_')) return 'azure';
+
+    // Alibaba Cloud
+    if (resourceType.startsWith('alicloud_')) return 'alicloud';
+
+    // DigitalOcean
+    if (resourceType.startsWith('digitalocean_')) return 'digitalocean';
+
+    // Common pattern matching
+    const patterns = {
+        aws: ['ec2', 's3', 'rds', 'lambda', 'dynamodb', 'cloudfront'],
+        gcp: ['compute', 'storage', 'sql', 'functions', 'pubsub'],
+        azure: ['vm', 'sql', 'storage', 'app_service']
+    };
+
+    for (const [provider, keywords] of Object.entries(patterns)) {
+        if (keywords.some((keyword) => resourceType.includes(keyword))) {
+            return provider;
+        }
+    }
+
+    return 'unknown';
+}
+
 module.exports = TerraformParser;
+module.exports.getProviderFromResourceType = getProviderFromResourceType;

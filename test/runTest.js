@@ -15,6 +15,14 @@ async function main() {
 
 		const vscodeExecutablePath = await downloadAndUnzipVSCode();
 
+		// Isolated user-data/extensions dirs so this headless test instance
+		// never collides with any other running VS Code (including the real
+		// editor this script itself might be running inside) — without this,
+		// VS Code refuses to start a second instance sharing the default
+		// profile ("only supported if no other instance of Code is running").
+		const userDataDir = path.resolve(__dirname, '..', '.vscode-test', 'user-data');
+		const extensionsDir = path.resolve(__dirname, '..', '.vscode-test', 'extensions');
+
 		const args = [
 			'--no-sandbox',
 			'--disable-gpu-sandbox',
@@ -22,6 +30,8 @@ async function main() {
 			'--skip-welcome',
 			'--skip-release-notes',
 			'--disable-workspace-trust',
+			`--user-data-dir=${userDataDir}`,
+			`--extensions-dir=${extensionsDir}`,
 			`--extensionTestsPath=${extensionTestsPath}`,
 			`--extensionDevelopmentPath=${extensionDevelopmentPath}`,
 		];
