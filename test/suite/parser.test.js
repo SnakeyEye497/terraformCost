@@ -1,5 +1,5 @@
 const assert = require('assert');
-const TerraformParser = require('../../src/terraform-parser');
+const TerraformParser = require('../../src/core/terraform-parser');
 
 suite('Terraform Parser Test Suite', () => {
     let parser;

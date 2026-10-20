@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Headless CLI cost calculator — reuses the extension's real
- * src/terraform-parser.js + src/cost-calculator.js (not a reimplementation)
+ * src/core/terraform-parser.js + src/core/cost-calculator.js (not a reimplementation)
  * outside the VS Code extension host, for use in CI (GitHub Actions PR
  * cost-diff comments — see .github/workflows/terraform-cost.yml).
  *
@@ -11,7 +11,7 @@
  * try to shell out to a real `infracost` binary). So a minimal stub
  * returning the caller's own default for every config key is enough to run
  * them standalone; this is the same approach used to verify
- * test-fixtures/complex-project's numbers.
+ * test/fixtures/complex-project's numbers.
  *
  * Usage: node scripts/ci-cost-report.js [directory]  (defaults to cwd)
  * Output: a single JSON object on stdout — { totalMonthly, resourceCount,
@@ -32,8 +32,8 @@ Module._load = function (request) {
 
 const fs = require('fs');
 const path = require('path');
-const TerraformParser = require('../src/terraform-parser');
-const TerraformCostCalculator = require('../src/cost-calculator');
+const TerraformParser = require('../src/core/terraform-parser');
+const TerraformCostCalculator = require('../src/core/cost-calculator');
 
 const SKIP_DIRS = new Set(['node_modules', '.terraform', '.git', '.vscode-test']);
 

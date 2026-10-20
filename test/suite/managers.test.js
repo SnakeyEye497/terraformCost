@@ -2,12 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const BudgetManager = require('../../src/budget-manager');
-const CapacityManager = require('../../src/capacity-manager');
-const CostHistoryManager = require('../../src/cost-history-manager');
-const NotificationManager = require('../../src/notification-manager');
-const { extractResourcesFromPlan, getPlanMetadata } = require('../../src/plan-parser');
-const TerraformCostCalculator = require('../../src/cost-calculator');
+const BudgetManager = require('../../src/config/budget-manager');
+const CapacityManager = require('../../src/config/capacity-manager');
+const CostHistoryManager = require('../../src/config/cost-history-manager');
+const NotificationManager = require('../../src/integrations/notification-manager');
+const { extractResourcesFromPlan, getPlanMetadata } = require('../../src/core/plan-parser');
+const TerraformCostCalculator = require('../../src/core/cost-calculator');
 
 function tempProject() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tfcost-test-'));
@@ -111,7 +111,7 @@ suite('Budget alert webhooks', () => {
 });
 
 suite('Terraform plan-based costing', () => {
-    const plan = require('../../test-fixtures/sample-plan/plan.json');
+    const plan = require('../fixtures/sample-plan/plan.json');
 
     test('extracts managed resources that exist after apply', () => {
         const resources = extractResourcesFromPlan(plan);

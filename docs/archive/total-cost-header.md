@@ -1,3 +1,5 @@
+> **Archived document.** Kept for history; it describes the project as it was at the time and may mention files, numbers or behavior that have since changed. See the [docs index](../README.md) for current documentation.
+
 # Total Cost Header Feature
 
 ## Overview

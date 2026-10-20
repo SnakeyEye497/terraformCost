@@ -2,8 +2,8 @@ const assert = require('assert');
 const vscode = require('vscode');
 
 // Import test modules
-const TerraformParser = require('../src/terraform-parser');
-const TerraformCostCalculator = require('../src/cost-calculator');
+const TerraformParser = require('../../src/core/terraform-parser');
+const TerraformCostCalculator = require('../../src/core/cost-calculator');
 
 suite('Terraform Cost Calculator Extension Test Suite', () => {
     vscode.window.showInformationMessage('Starting Terraform Cost Calculator tests.');
@@ -216,7 +216,7 @@ suite('Configuration Tests', () => {
     test('Should have valid package.json configuration', () => {
         const fs = require('fs');
         const path = require('path');
-        const packageJsonPath = path.join(__dirname, '..', 'package.json');
+        const packageJsonPath = path.join(__dirname, '..', '..', 'package.json');
         const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf8');
         const packageJson = JSON.parse(packageJsonContent);
         
@@ -236,7 +236,7 @@ suite('Configuration Tests', () => {
 
     test('Activating the bundled extension registers every declared command, and only those', async function () {
         this.timeout(30000);
-        const packageJson = require('../package.json');
+        const packageJson = require('../../package.json');
         const extension = vscode.extensions.getExtension(`${packageJson.publisher}.${packageJson.name}`);
         assert.ok(extension, 'extension should be loaded in the test host');
         await extension.activate();
