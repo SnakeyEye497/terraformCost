@@ -103,7 +103,7 @@ Static parsing can't resolve everything real Terraform can (`count`/`for_each` e
    ```
 2. Back in the Dev Host window, run **Terraform Cost: Calculate Costs from Terraform Plan** and pick that `plan.json` (or the binary `plan.tfplan` — Matali will try to run `terraform show -json` on it for you if the `terraform` CLI is on your `PATH`).
 3. The dashboard opens straight into "plan" scope: same hero total/donut/provider charts as file or workspace scope, but the subtitle reads **📋 Terraform plan: plan.json** and every resource is tagged with its module address instead of a file path.
-4. No real project handy? [test/fixtures/sample-plan](../test/fixtures/sample-plan) ships a genuine plan (`plan.json`, produced from its own `main.tf` via the real steps above, no cloud credentials needed) — pick that and you should land on **$95.86/mo** across 4 resources.
+4. No real project handy? [test/fixtures/sample-plan](../test/fixtures/sample-plan) ships a genuine plan (`plan.json`, produced from its own `main.tf` via the real steps above, no cloud credentials needed) — pick that and you should land on **$98.16/mo** across 4 resources.
 5. Don't have the `terraform` CLI at all? You can still pick `plan.json` files directly (skip steps 1–2) — only the binary-`.tfplan`-to-JSON conversion in step 2 needs the CLI.
 
 ### Trying cost history tracking

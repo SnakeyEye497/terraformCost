@@ -98,6 +98,12 @@ function runCommand(command, args, { input, timeoutMs = 60000 } = {}) {
     });
 }
 
+// Rounds to cents and normalizes -0 (credits netting usage to zero would
+// otherwise print as "-0.00").
+function roundCents(n) {
+    return Math.round(n * 100) / 100 + 0;
+}
+
 function summarize(provider, period, services, currency) {
     const sorted = services.filter((s) => s.cost !== 0).sort((a, b) => b.cost - a.cost);
     return {
@@ -105,7 +111,7 @@ function summarize(provider, period, services, currency) {
         period: period.label,
         start: period.start,
         end: period.end,
-        total: sorted.reduce((sum, s) => sum + s.cost, 0),
+        total: roundCents(sorted.reduce((sum, s) => sum + s.cost, 0)),
         currency: currency || 'USD',
         services: sorted
     };
@@ -288,7 +294,7 @@ async function fetchActualSpend(providers, options = {}) {
  */
 function buildComparisonMarkdown(actual, estimate, meta) {
     const { periods, results } = actual;
-    const money = (n, cur) => `${cur || meta.currency} ${Number(n).toFixed(2)}`;
+    const money = (n, cur) => `${cur || meta.currency} ${roundCents(Number(n)).toFixed(2)}`;
     const estimateFor = (provider) => estimate?.byProvider?.find((p) => p.provider === provider)?.monthly;
     const pct = (a, b) => (b ? `${a >= b ? '+' : ''}${(((a - b) / b) * 100).toFixed(0)}%` : '—');
 

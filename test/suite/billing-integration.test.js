@@ -37,6 +37,22 @@ suite('Billing integration (actual cloud spend)', () => {
         assert.deepStrictEqual(r.services.map((s) => s.name), ['Amazon Elastic Compute Cloud - Compute', 'Amazon Simple Storage Service']);
     });
 
+    test('usage fully offset by credits totals 0.00, never -0.00', () => {
+        const r = billing.parseAwsCostExplorer({
+            ResultsByTime: [{
+                Groups: [
+                    { Keys: ['EC2'], Metrics: { UnblendedCost: { Amount: '1.2', Unit: 'USD' } } },
+                    { Keys: ['Credit'], Metrics: { UnblendedCost: { Amount: '-1.2000000001', Unit: 'USD' } } }
+                ]
+            }]
+        });
+        assert.ok(Object.is(r.total, 0));
+        const md = billing.buildComparisonMarkdown(
+            { periods: billing.getBillingPeriods(NOW), results: [{ provider: 'aws', lastMonth: r, monthToDate: r }] },
+            null, { currency: 'USD', projectName: 'x' });
+        assert.ok(!md.includes('-0.00'), md);
+    });
+
     test('parses Azure Cost Management query output by column name', () => {
         const r = billing.parseAzureCostQuery({
             properties: {
