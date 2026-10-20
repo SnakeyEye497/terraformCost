@@ -55,7 +55,7 @@ All documentation is in [`docs/`](docs/README.md):
 src/            extension source (core, integrations, config, ui, export, utils)
 test/           Mocha suite + fixtures (sample projects, a real plan JSON)
 docs/           documentation
-examples/       example.tf to try the extension on
+examples/       example.tf, plus aws-demo/ for real `terraform plan` costing
 scripts/        headless cost report used by the GitHub Action
 images/         extension icon
 ```

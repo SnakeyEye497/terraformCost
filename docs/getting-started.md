@@ -71,7 +71,7 @@ If you just want to see everything at once (good for a demo, or to sanity-check 
 8. Bump `batch_processor`'s `instance_type` to something even bigger and save — watch the budget meter go red, and the AI suggestion change on your next ask.
 9. Click **Export** in the dashboard's topbar → **Whole workspace** → save. Open the resulting `.xlsx` — everything you just saw is now a 10-sheet spreadsheet, including the AI/scaling suggestions from steps 6–7.
 10. Click **Record snapshot** in the dashboard's Cost History card, change an instance size, save, and record a second snapshot — a real line chart appears tracking that jump.
-11. `Ctrl+Shift+P` → **Terraform Cost: Calculate Costs from Terraform Plan** → pick [test/fixtures/sample-plan/plan.json](../test/fixtures/sample-plan/plan.json) — a genuine `terraform show -json` output — and watch the dashboard switch to plan scope at **$95.86/mo** across 4 resources.
+11. `Ctrl+Shift+P` → **Terraform Cost: Calculate Costs from Terraform Plan** → pick [test/fixtures/sample-plan/plan.json](../test/fixtures/sample-plan/plan.json) — a genuine `terraform show -json` output — and watch the dashboard switch to plan scope at **$98.16/mo** across 4 resources.
 
 That's the whole extension, one file at a time, start to finish.
 

@@ -32,6 +32,7 @@ terraform.tfstate
 terraform.tfstate.*
 crash.log
 *.tfplan
+examples/**/plan.json
 
 ### Infracost cache
 .infracost/
