@@ -338,7 +338,19 @@ function registerCommands(context) {
             await config.update('notifications.provider', picked.value, true);
         }
 
-        vscode.window.showInformationMessage(`${picked.label} webhook saved securely. Budget alerts will post there when a threshold is crossed.`);
+        const choice = await vscode.window.showInformationMessage(
+            `${picked.label} webhook saved securely. Budget alerts will post there when a threshold is crossed.`,
+            'Send Test Alert'
+        );
+        if (choice === 'Send Test Alert') {
+            await sendTestBudgetAlert();
+        }
+    });
+
+    // Post a clearly-labelled sample alert to the configured webhook, to
+    // confirm delivery without having to actually cross a budget threshold.
+    const testBudgetWebhookCommand = vscode.commands.registerCommand('terraformCost.testBudgetWebhook', async () => {
+        await sendTestBudgetAlert();
     });
 
     // Remove the saved webhook URL and disable alerts
@@ -390,6 +402,7 @@ function registerCommands(context) {
         setCapacityConfigCommand,
         exportCostReportCommand,
         setBudgetWebhookCommand,
+        testBudgetWebhookCommand,
         clearBudgetWebhookCommand,
         calculateFromPlanCommand,
         recordCostSnapshotCommand
@@ -1665,6 +1678,37 @@ async function checkBudgetAndWarn(filePath, totalMonthly) {
         // Clear diagnostics and reset notification level
         budgetDiagnostics.delete(vscode.Uri.file(filePath));
         budgetManager.setNotificationLevelForFile(filePath, 0);
+    }
+}
+
+async function sendTestBudgetAlert() {
+    const config = vscode.workspace.getConfiguration('terraformCost');
+    const provider = config.get('notifications.provider', 'none');
+    const webhookUrl = await notificationManager.getWebhookUrl();
+    if (provider === 'none' || !webhookUrl) {
+        const choice = await vscode.window.showWarningMessage(
+            'No budget alert webhook is configured yet.', 'Set Webhook');
+        if (choice === 'Set Webhook') {
+            await vscode.commands.executeCommand('terraformCost.setBudgetWebhook');
+        }
+        return;
+    }
+
+    try {
+        await notificationManager.sendBudgetAlert({
+            provider,
+            webhookUrl,
+            level: 1,
+            current: 123.45,
+            limit: 100,
+            currency: getCurrency(),
+            projectName: `${getProjectName(vscode.window.activeTextEditor?.document.uri.fsPath)} (TEST ALERT)`,
+            fileName: 'test alert sent from VS Code (no real budget was crossed)'
+        });
+        vscode.window.showInformationMessage(
+            `Test alert sent to ${provider === 'teams' ? 'Microsoft Teams' : 'Slack'}. Check your channel.`);
+    } catch (error) {
+        vscode.window.showErrorMessage(`Test alert failed: ${error.message}`);
     }
 }
 

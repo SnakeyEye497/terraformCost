@@ -171,6 +171,7 @@ Drop a `terraform.budget.json` in your workspace root (or any parent folder of y
 | `Terraform Cost: Set Capacity & Scaling Inputs` | Interactive wizard for expected users/requests/growth, saved to `terraform.capacity.json` |
 | `Terraform Cost: Export Cost Report (Excel)` | Prompts for scope, then saves a multi-sheet `.xlsx` cost report via a native save dialog |
 | `Terraform Cost: Set Budget Alert Webhook (Slack/Teams)` | Pick Slack or Teams and securely save an incoming webhook URL for budget-threshold alerts |
+| `Terraform Cost: Send Test Budget Alert` | Post a clearly-labelled sample alert to the saved webhook to confirm delivery |
 | `Terraform Cost: Clear Budget Alert Webhook` | Remove the saved webhook and disable alerts |
 | `Terraform Cost: Calculate Costs from Terraform Plan` | Pick a `terraform show -json` plan (or binary `.tfplan`) and cost every resource that will exist after it applies |
 | `Terraform Cost: Record Cost Snapshot` | Append the current scope's total to `terraform-cost-history.json` for the dashboard's Cost History chart |
@@ -317,7 +318,8 @@ A budget threshold crossing (`terraform.budget.json`) can post to a Slack or Mic
 
 **Setup:**
 1. Create an incoming webhook URL in Slack ([api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)) or Teams (recommended: a **Workflows** "When a Teams webhook request is received" flow; classic channel Incoming Webhooks also work), then run `Terraform Cost: Set Budget Alert Webhook (Slack/Teams)` and paste it in. Stored via `SecretStorage`, same as the AI provider keys — never in `settings.json`. This also sets `terraformCost.notifications.provider` to match.
-2. That's it — the next time a threshold in `terraform.budget.json` is crossed, both the existing popup *and* the webhook fire together.
+2. Click **Send Test Alert** on the confirmation (or run `Terraform Cost: Send Test Budget Alert` any time) to confirm a sample message arrives.
+3. From then on, whenever a threshold in `terraform.budget.json` is crossed, both the existing popup *and* the webhook fire together.
 
 **Design notes:**
 - **Same trigger point as the existing popup, not a parallel schedule.** `checkBudgetAndWarn()` already tracks "have we notified for this level yet" per file to avoid spamming a popup on every keystroke; the webhook fires from that exact same `level > prev` check, so there's one source of truth for "did we already alert on this," not two mechanisms that could drift out of sync.

@@ -113,6 +113,11 @@
         "category": "Terraform Cost"
       },
       {
+        "command": "terraformCost.testBudgetWebhook",
+        "title": "Send Test Budget Alert",
+        "category": "Terraform Cost"
+      },
+      {
         "command": "terraformCost.clearBudgetWebhook",
         "title": "Clear Budget Alert Webhook",
         "category": "Terraform Cost"
