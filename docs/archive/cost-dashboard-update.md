@@ -1,9 +1,11 @@
+> **Archived document.** Kept for history; it describes the project as it was at the time and may mention files, numbers or behavior that have since changed. See the [docs index](../README.md) for current documentation.
+
 # Update: Visual Cost Dashboard
 
 This document is for whoever pulls this branch next (hi 👋) — it explains **what
 was added, where the code lives, and exact steps to test every command** in the
-extension, old and new. Read [README.md](README.md) for the project overview and
-[RUNNING.md](RUNNING.md) for the general "how to launch this" walkthrough — this
+extension, old and new. Read [README.md](../../README.md) for the project overview and
+[RUNNING.md](../getting-started.md) for the general "how to launch this" walkthrough — this
 file is the changelog + test script for this specific update.
 
 ---
@@ -23,14 +25,14 @@ between Terraform files.
 
 | File | Status | What changed |
 |---|---|---|
-| [src/cost-dashboard.js](src/cost-dashboard.js) | **New** | The whole dashboard: `CostDashboardPanel` class (manages the `vscode.WebviewPanel`) + the HTML/CSS/JS the panel renders (three charts + budget meter, all hand-rolled SVG/vanilla JS). |
-| [extension.js](extension.js) | Modified | Registers the `terraformCost.showCostDashboard` command; adds `buildDashboardAggregate()` (turns already-computed resource costs into chart-ready data: totals, cost-by-provider, cost-by-type, 12-month forecast, budget status) and `updateDashboard()` / `refreshDashboard()` which push that data into the panel whenever costs get recalculated (i.e. it rides the same edit/save/switch-editor events the inline decorations already use — no new listeners). |
-| [package.json](package.json) | Modified | Adds the `terraformCost.showCostDashboard` command + a graph icon (`$(graph)`) in the editor title bar for `.tf` files. |
-| [example.tf](example.tf) | Modified | Added a couple of GCP and Azure resources so the provider bar chart has more than one bar to show out of the box. |
-| [README.md](README.md) / [RUNNING.md](RUNNING.md) / [CHANGELOG.md](CHANGELOG.md) | Modified | Documented the new command/feature. |
+| [src/ui/cost-dashboard.js](../../src/ui/cost-dashboard.js) | **New** | The whole dashboard: `CostDashboardPanel` class (manages the `vscode.WebviewPanel`) + the HTML/CSS/JS the panel renders (three charts + budget meter, all hand-rolled SVG/vanilla JS). |
+| [extension.js](../../src/extension.js) | Modified | Registers the `terraformCost.showCostDashboard` command; adds `buildDashboardAggregate()` (turns already-computed resource costs into chart-ready data: totals, cost-by-provider, cost-by-type, 12-month forecast, budget status) and `updateDashboard()` / `refreshDashboard()` which push that data into the panel whenever costs get recalculated (i.e. it rides the same edit/save/switch-editor events the inline decorations already use — no new listeners). |
+| [package.json](../../package.json) | Modified | Adds the `terraformCost.showCostDashboard` command + a graph icon (`$(graph)`) in the editor title bar for `.tf` files. |
+| [example.tf](../../examples/example.tf) | Modified | Added a couple of GCP and Azure resources so the provider bar chart has more than one bar to show out of the box. |
+| [README.md](../../README.md) / [RUNNING.md](../getting-started.md) / [CHANGELOG.md](../../CHANGELOG.md) | Modified | Documented the new command/feature. |
 
-Nothing about the existing pipeline (`src/terraform-parser.js`, `src/cost-calculator.js`,
-`src/cost-decorator.js`, `src/status-bar-manager.js`, `src/budget-manager.js`) was
+Nothing about the existing pipeline (`src/core/terraform-parser.js`, `src/core/cost-calculator.js`,
+`src/ui/cost-decorator.js`, `src/ui/status-bar-manager.js`, `src/config/budget-manager.js`) was
 changed — the dashboard is a pure consumer of the same cost data those already produce.
 
 ## 3. What the dashboard actually shows
@@ -72,7 +74,7 @@ extension loaded — do all testing in *that* window.
 
 Open the Command Palette in the Dev Host window (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 and type "Terraform Cost" to find these. Test them in this order against
-[example.tf](example.tf) (**File → Open File → example.tf**).
+[example.tf](../../examples/example.tf) (**File → Open File → example.tf**).
 
 ### 5.1 `Terraform Cost: Calculate Costs`
 1. Open `example.tf`, make sure it's the active editor.
@@ -130,7 +132,7 @@ and type "Terraform Cost" to find these. Test them in this order against
    **Expect:** the dashboard shows "No cost data yet" rather than erroring.
 
 ### 5.6 `Terraform Cost: Clear Error Log` / `Terraform Cost: Export Error Log`
-These exist in code (`src/error-handler.js`) but aren't in `package.json`'s
+These exist in code (`src/utils/error-handler.js`) but aren't in `package.json`'s
 `contributes.commands`, so they only show up in the palette under their raw id
 (`terraformCost.clearErrorLog`, `terraformCost.exportErrorLog`) rather than a
 friendly title — pre-existing, not part of this update. Still functional:

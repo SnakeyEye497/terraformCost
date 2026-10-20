@@ -1,6 +1,6 @@
 const assert = require('assert');
-const TerraformCostCalculator = require('../../src/cost-calculator');
-const TerraformParser = require('../../src/terraform-parser');
+const TerraformCostCalculator = require('../../src/core/cost-calculator');
+const TerraformParser = require('../../src/core/terraform-parser');
 
 const approx = (actual, expected, msg) => assert.ok(Math.abs(actual - expected) < 0.01, `${msg || ''} expected ${expected}, got ${actual}`);
 

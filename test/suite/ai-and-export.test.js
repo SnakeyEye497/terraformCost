@@ -1,7 +1,7 @@
 const assert = require('assert');
 const ExcelJS = require('exceljs');
-const AIAdvisor = require('../../src/ai-advisor');
-const { buildWorkbook } = require('../../src/excel-exporter');
+const AIAdvisor = require('../../src/integrations/ai-advisor');
+const { buildWorkbook } = require('../../src/export/excel-exporter');
 
 const RESOURCES = [
     { resource: { type: 'aws_instance', name: 'web', provider: 'aws', attributes: { instance_type: 'm5.xlarge' } }, cost: { monthly: 140.16 } },

@@ -1,26 +1,20 @@
 # Everything the extension needs at runtime is bundled into dist/ by webpack,
-# so sources, tests, and node_modules are left out of the .vsix.
+# so sources, tests, docs, and node_modules are left out of the .vsix.
+# (README.md, CHANGELOG.md, LICENSE, package.json and images/icon.png ship.)
 .vscode/**
 .vscode-test/**
 .github/**
 node_modules/**
 src/**
 test/**
-test-fixtures/**
 scripts/**
+docs/**
+examples/**
 images/**
 !images/icon.png
-extension.js
 webpack.config.js
 eslint.config.mjs
 jsconfig.json
-.vscode-test.mjs
-vsc-extension-quickstart.md
-IMPLEMENTATION.md
-UPDATE.md
-TOTAL_COST_HEADER.md
-RUNNING.md
-example.tf
 .gitignore
 .yarnrc
 **/*.map

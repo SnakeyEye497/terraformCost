@@ -4,7 +4,7 @@ const vscode = require('vscode');
  * Webview panel that renders a visual cost dashboard for the active Terraform file:
  * a cost-breakdown donut, a per-provider bar chart, and a 12-month forecast chart.
  *
- * The panel is a passive renderer — extension.js computes the data (via
+ * The panel is a passive renderer — src/extension.js computes the data (via
  * buildDashboardAggregate) and pushes it in with update(). The webview itself
  * only asks for data (on load, and via the Refresh button) through onRefreshRequest.
  */

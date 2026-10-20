@@ -1,3 +1,5 @@
+> **Archived document.** Kept for history; it describes the project as it was at the time and may mention files, numbers or behavior that have since changed. See the [docs index](../README.md) for current documentation.
+
 # Terraform Cost Calculator Extension - Complete Implementation
 
 ## 🎉 Success! Your extension is ready!
@@ -156,7 +158,7 @@ Plus a status bar showing: `💰 $55.19/mo`
 ## 📝 Key Files to Customize
 
 1. **`package.json`**: Update publisher name, description, repository URL
-2. **`src/cost-calculator.js`**: Add new resource types or update pricing
+2. **`src/core/cost-calculator.js`**: Add new resource types or update pricing
 3. **`README.md`**: Customize for your specific use case
 4. **Configuration**: Add new settings as needed
 
