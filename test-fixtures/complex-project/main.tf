@@ -1,9 +1,8 @@
 # Root orchestration — wires the modules together the way a real multi-module
-# project would. Matali's workspace scanner does NOT follow these `module`
-# blocks into a dependency graph; it just finds every `resource` block in
-# every .tf file under the workspace, flat. These module calls are here for
-# authenticity (and so `terraform init/plan` would work if you ever pointed
-# real Terraform at this), not because the extension needs them.
+# project would. The workspace scanner follows these `module` blocks
+# (src/module-resolver.js): this directory is treated as the root, and each
+# module's resources are resolved through its call site below, so variables
+# passed in here override each module's own defaults.
 
 module "networking" {
   source = "./modules/networking"

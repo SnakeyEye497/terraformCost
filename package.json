@@ -3,14 +3,15 @@
   "displayName": "Matali - Terraform Cost Calculator",
   "description": "Real-time cost estimation for Terraform infrastructure across AWS, GCP, and Azure",
   "version": "1.0.0",
-  "publisher": "UnknownPublisher",
-  "icon": "icon.png",
+  "publisher": "snakeyeye497",
+  "license": "Apache-2.0",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/terraform-cost-calculator"
+    "url": "https://github.com/SnakeyEye497/terraformCost.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/terraform-cost-calculator/issues"
+    "url": "https://github.com/SnakeyEye497/terraformCost/issues"
   },
   "keywords": [
     "terraform",
@@ -35,7 +36,7 @@
     "onLanguage:terraform",
     "workspaceContains:**/*.tf"
   ],
-  "main": "./extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
@@ -127,6 +128,22 @@
         "title": "Record Cost Snapshot",
         "category": "Terraform Cost",
         "icon": "$(history)"
+      },
+      {
+        "command": "terraformCost.compareActualSpend",
+        "title": "Compare Estimate with Actual Cloud Spend",
+        "category": "Terraform Cost",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "terraformCost.exportErrorLog",
+        "title": "Export Error Log",
+        "category": "Terraform Cost"
+      },
+      {
+        "command": "terraformCost.clearErrorLog",
+        "title": "Clear Error Log",
+        "category": "Terraform Cost"
       }
     ],
     "menus": {
@@ -254,13 +271,32 @@
         "terraformCost.notifications.provider": {
           "type": "string",
           "default": "none",
-          "enum": ["none", "slack", "teams"],
+          "enum": [
+            "none",
+            "slack",
+            "teams"
+          ],
           "enumDescriptions": [
             "Budget alert webhooks disabled",
             "Slack incoming webhook",
-            "Microsoft Teams incoming webhook"
+            "Microsoft Teams (Workflows webhook or classic Incoming Webhook)"
           ],
           "description": "Chat platform for budget threshold alerts. Set the webhook URL first via the 'Terraform Cost: Set Budget Alert Webhook' command — stored securely (VS Code SecretStorage), never in settings."
+        },
+        "terraformCost.billing.awsProfile": {
+          "type": "string",
+          "default": "",
+          "description": "AWS CLI profile used by 'Compare Estimate with Actual Cloud Spend' (Cost Explorer). Leave blank to use the CLI's default credentials."
+        },
+        "terraformCost.billing.azureSubscriptionId": {
+          "type": "string",
+          "default": "",
+          "description": "Azure subscription id used by 'Compare Estimate with Actual Cloud Spend'. Leave blank to use the `az account show` default subscription."
+        },
+        "terraformCost.billing.gcpBillingExportTable": {
+          "type": "string",
+          "default": "",
+          "description": "BigQuery table holding your Cloud Billing export (project.dataset.table), used by 'Compare Estimate with Actual Cloud Spend' for Google Cloud."
         }
       }
     },
@@ -281,12 +317,13 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "pretest": "npm run lint",
-    "test": "node ./test/runTest.js",
-    "vscode:prepublish": "npm run package",
-    "package": "webpack --mode production",
     "compile": "webpack --mode development",
-    "watch": "webpack --mode development --watch"
+    "watch": "webpack --mode development --watch",
+    "package": "webpack --mode production",
+    "vscode:prepublish": "npm run package",
+    "pretest": "npm run compile && npm run lint",
+    "test": "node ./test/runTest.js",
+    "vsix": "vsce package"
   },
   "dependencies": {
     "debounce": "^2.0.0",
@@ -297,9 +334,20 @@
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.9",
+    "@vscode/vsce": "^4.0.0",
     "eslint": "^8.56.0",
-    "mocha": "^10.2.0",
+    "mocha": "^12.0.3",
     "webpack": "^5.90.0",
     "webpack-cli": "^5.1.4"
+  },
+  "galleryBanner": {
+    "color": "#3B2A8F",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/SnakeyEye497/terraformCost#readme",
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

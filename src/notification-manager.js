@@ -14,13 +14,6 @@
 
 const SECRET_KEY = 'terraformCost.notifications.webhookUrl';
 
-const LEVEL_COLORS = {
-    1: '#eda100', // yellow
-    2: '#eda100',
-    3: '#eb6834', // orange
-    4: '#d03b3b' // red — final limit
-};
-
 class NotificationManager {
     /**
      * @param {import('vscode').ExtensionContext} context
@@ -97,27 +90,58 @@ function buildSlackPayload({ level, current, limit, currency, projectName, fileN
     };
 }
 
+/**
+ * Adaptive Card wrapped in a `message` envelope. This is the format Teams
+ * Workflows ("When a Teams webhook request is received") requires, and the
+ * remaining classic Incoming Webhook connectors accept it too — unlike the
+ * legacy `MessageCard` format, which Workflows rejects.
+ */
 function buildTeamsPayload({ level, current, limit, currency, projectName, fileName }) {
     const emoji = level >= 4 ? '🔴' : '🟡';
     const fmt = (n) => `${currency} ${n.toFixed(2)}`;
     return {
-        '@type': 'MessageCard',
-        '@context': 'http://schema.org/extensions',
-        summary: 'Terraform Budget Alert',
-        themeColor: (LEVEL_COLORS[level] || LEVEL_COLORS[1]).replace('#', ''),
-        title: `${emoji} Terraform Budget Alert`,
-        sections: [
+        type: 'message',
+        attachments: [
             {
-                facts: [
-                    { name: 'Project', value: projectName },
-                    { name: 'File', value: fileName },
-                    { name: 'Current spend', value: `${fmt(current)}/mo` },
-                    { name: 'Threshold', value: levelLabel(level, currency, limit) }
-                ],
-                text: 'via Matali — Terraform Cost Calculator'
+                contentType: 'application/vnd.microsoft.card.adaptive',
+                contentUrl: null,
+                content: {
+                    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+                    type: 'AdaptiveCard',
+                    version: '1.4',
+                    msteams: { width: 'Full' },
+                    body: [
+                        {
+                            type: 'TextBlock',
+                            text: `${emoji} Terraform Budget Alert`,
+                            weight: 'Bolder',
+                            size: 'Medium',
+                            color: level >= 4 ? 'Attention' : 'Warning',
+                            wrap: true
+                        },
+                        {
+                            type: 'FactSet',
+                            facts: [
+                                { title: 'Project', value: projectName },
+                                { title: 'File', value: fileName },
+                                { title: 'Current spend', value: `${fmt(current)}/mo` },
+                                { title: 'Threshold', value: levelLabel(level, currency, limit) }
+                            ]
+                        },
+                        {
+                            type: 'TextBlock',
+                            text: 'via Matali — Terraform Cost Calculator',
+                            isSubtle: true,
+                            size: 'Small',
+                            wrap: true
+                        }
+                    ]
+                }
             }
         ]
     };
 }
 
 module.exports = NotificationManager;
+module.exports.buildSlackPayload = buildSlackPayload;
+module.exports.buildTeamsPayload = buildTeamsPayload;

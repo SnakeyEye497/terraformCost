@@ -1,5 +1,7 @@
 const vscode = require('vscode');
-const { resolveModuleGraph } = require('./module-resolver');
+const path = require('path');
+const fs = require('fs');
+const { resolveModuleGraph, parseModuleManifest } = require('./module-resolver');
 
 /**
  * Discovers every .tf file in the workspace (not just the active editor),
@@ -16,9 +18,12 @@ const { resolveModuleGraph } = require('./module-resolver');
  * workspace API rather than raw fs, so it respects unsaved editor buffers
  * and multi-root workspaces the way live scanning should.
  *
- * Only remote module sources (registry, git, etc. — anything not starting
- * with `./` or `../`) fall outside what's resolved; a resource that lives
- * only inside such a module simply won't be found. Module resolution only
+ * Remote module sources (registry, git, etc.) are resolved through the
+ * `.terraform/modules/modules.json` manifest `terraform init` writes — their
+ * downloaded source is read from `.terraform/modules/...` even though that
+ * folder is otherwise excluded from the scan. Without a prior `terraform
+ * init`, a resource that lives only inside a remote module simply won't be
+ * found (see `unresolvedModules` on the result). Module resolution only
  * applies here, at workspace scope — single-file scope inherently has no
  * "caller" to consult for override values, so it keeps resolving each
  * file's own variables from their own defaults, as before.
@@ -59,12 +64,19 @@ class WorkspaceScanner {
             }
         }
 
+        const moduleManifests = await this.loadModuleManifests(parsedByFile);
+
         let resolvedResources;
         try {
-            resolvedResources = resolveModuleGraph(parsedByFile, this.parser);
+            resolvedResources = resolveModuleGraph(parsedByFile, this.parser, { moduleManifests });
         } catch (err) {
             console.error('Module graph resolution failed:', err);
             resolvedResources = [];
+        }
+        this.lastUnresolvedModules = resolvedResources.unresolvedModules || [];
+        if (this.lastUnresolvedModules.length > 0) {
+            console.warn('Workspace scan: modules that could not be resolved (run `terraform init` to download remote modules):',
+                this.lastUnresolvedModules);
         }
 
         const results = [];
@@ -78,6 +90,55 @@ class WorkspaceScanner {
         }
 
         return results;
+    }
+
+    /**
+     * Finds every `.terraform/modules/modules.json` in the workspace, and
+     * parses the .tf files of each remote module it lists into
+     * parsedByFile (mutated in place).
+     *
+     * @returns {Promise<Map<string, Map<string, string>>>} root dir -> (module key -> install dir)
+     */
+    async loadModuleManifests(parsedByFile) {
+        const moduleManifests = new Map();
+        let manifestUris = [];
+        try {
+            manifestUris = await vscode.workspace.findFiles('**/.terraform/modules/modules.json', '**/node_modules/**');
+        } catch (err) {
+            console.warn('Workspace scan: failed to search for module manifests:', err.message);
+        }
+
+        for (const uri of manifestUris) {
+            try {
+                // <root>/.terraform/modules/modules.json -> <root>
+                const rootDir = path.dirname(path.dirname(path.dirname(uri.fsPath)));
+                const manifest = JSON.parse(await fs.promises.readFile(uri.fsPath, 'utf8'));
+                const keyToDir = parseModuleManifest(manifest, rootDir);
+                moduleManifests.set(rootDir, keyToDir);
+
+                for (const dir of new Set(keyToDir.values())) {
+                    let entries = [];
+                    try {
+                        entries = await fs.promises.readdir(dir);
+                    } catch {
+                        continue; // listed in the manifest but not on disk
+                    }
+                    for (const name of entries.filter((n) => n.endsWith('.tf'))) {
+                        const filePath = path.join(dir, name);
+                        if (parsedByFile.has(filePath)) continue;
+                        const parsed = await this.parser.parse(await fs.promises.readFile(filePath, 'utf8'));
+                        parsedByFile.set(filePath, {
+                            ...parsed,
+                            relPath: vscode.workspace.asRelativePath(filePath, false)
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn(`Workspace scan: failed to read module manifest ${uri.fsPath}:`, err.message);
+            }
+        }
+
+        return moduleManifests;
     }
 }
 

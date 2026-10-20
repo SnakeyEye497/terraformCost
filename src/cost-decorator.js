@@ -161,7 +161,6 @@ class CostDecorator {
 
         // Decide color based on budgetInfo.level: 0=green, 1-3=yellow, 4=red
         let color = '#4CAF50';
-        let budgetLine = '';
         let level = 0;
         if (budgetInfo && typeof budgetInfo === 'object') {
             level = budgetInfo.level || 0;
@@ -169,11 +168,6 @@ class CostDecorator {
                 color = '#ff6b6b';
             } else if (level >= 1) {
                 color = '#FFB300';
-            }
-
-            if (budgetInfo.message) {
-                // we'll optionally render a separate block decoration instead of newline
-                budgetLine = ` ${budgetInfo.message}`;
             }
         }
 
@@ -275,7 +269,7 @@ class CostDecorator {
     }
 
     createDecoration(line, cost, resource) {
-        const costText = this.formatCostText(cost, resource);
+        const costText = this.formatCostText(cost);
         const range = new vscode.Range(line.lineNumber, line.text.length, line.lineNumber, line.text.length);
         
         return {
@@ -290,7 +284,7 @@ class CostDecorator {
         };
     }
 
-    formatCostText(cost, resource) {
+    formatCostText(cost) {
         if (cost.monthly === 0) {
             if (cost.breakdown && cost.breakdown[0] && cost.breakdown[0].includes('Error')) {
                 return ' ❌ Error calculating cost';

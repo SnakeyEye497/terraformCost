@@ -26,7 +26,7 @@ npm install
    - **Extension Tests** — runs the automated Mocha suite instead (same as `npm test`)
 
 3. **Press F5.** VS Code will:
-   - Compile nothing (the extension runs straight from `src/*.js`, no build step)
+   - Run the `npm: compile` task ([.vscode/tasks.json](.vscode/tasks.json)), which bundles `extension.js` + `src/` into `dist/extension.js` with webpack (a few seconds)
    - Launch a new window titled **[Extension Development Host]**
    - Load Matali into it automatically
 
@@ -189,9 +189,9 @@ Then edit your `.tf` file so the total crosses those numbers — the header shou
 ## Making code changes and seeing them take effect
 
 1. Edit any file under `src/` or `extension.js` in your **main** VS Code window (not the Dev Host window).
-2. Switch to the **Extension Development Host** window.
-3. Run **Developer: Reload Window** from the Command Palette (`Ctrl+Shift+P`).
-4. The extension reloads with your changes — no rebuild/compile step needed, since it runs straight from source.
+2. Rebuild the bundle: `npm run compile`, or keep `npm run watch` running in a terminal so it rebuilds on every save. (VS Code loads `dist/extension.js`, not the sources directly.)
+3. Switch to the **Extension Development Host** window and run **Developer: Reload Window** from the Command Palette (`Ctrl+Shift+P`).
+4. The extension reloads with your changes. Alternatively, stop the debug session and press F5 again, which recompiles automatically.
 
 To stop the Dev Host, just close that window, or press `Shift+F5` in your main VS Code window while debugging.
 
@@ -217,5 +217,6 @@ Real failure modes hit while building/testing this extension, in case they recur
   ```bash
   .vscode-test/vscode-win32-x64-archive-*/Code.exe --extensionDevelopmentPath="$PWD"
   ```
-- **Automated tests only** (no interactive window): `npm test` — runs the full Mocha suite (19 tests) inside a real extension host and exits.
+- **Automated tests only** (no interactive window): `npm test` — compiles and lints first, then runs the full Mocha suite (76 tests) inside a real extension host and exits.
+- **As an installed extension**: `npm run vsix`, then `code --install-extension terraform-cost-calculator-1.0.0.vsix`.
 - **Lint only**: `npm run lint`.

@@ -5,7 +5,7 @@
 A VS Code extension that estimates the monthly/yearly cost of your Terraform infrastructure **as you write it** — inline next to each resource, as a total-cost header at the top of the file, and as a running total in the status bar. Supports AWS, GCP, and Azure, with optional [Infracost](https://www.infracost.io) integration for accurate live pricing (falls back to built-in estimated pricing if no API key is configured).
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 
 ---
 
@@ -29,53 +29,54 @@ It's a plain-JavaScript VS Code extension (no TypeScript, no bundler required to
    -> src/cost-history-manager.js   reads/appends recorded snapshots in terraform-cost-history.json
    -> src/ai-advisor.js             (optional) asks Gemini/Claude/GPT/DeepSeek/Groq for cost AND scaling suggestions
    -> src/excel-exporter.js         builds a multi-sheet .xlsx report from all of the above
+   -> src/billing-integration.js    pulls ACTUAL spend (AWS Cost Explorer / Azure Cost Management /
+                                    GCP BigQuery billing export) to compare against the estimate
    -> src/error-handler.js          centralizes error logging/reporting
 
 scripts/ci-cost-report.js reuses terraform-parser.js + cost-calculator.js
 headlessly (outside the extension host) for .github/workflows/terraform-cost.yml
 ```
 
-All of this is wired together in [extension.js](extension.js), the extension's entry point.
+All of this is wired together in [extension.js](extension.js), the extension's entry point. For the packaged extension, webpack bundles it (plus `debounce` and `exceljs`) into `dist/extension.js`.
 
 ## What's currently implemented
 
-✅ **Working and test-covered** (19/19 tests passing — parser, cost-calculator, integration, and config tests):
+✅ **Working and test-covered** (76 tests passing under `npm test`: parser, cost calculator, module resolver, plan costing, budget/capacity/history managers, webhooks, AI advisor with a stubbed API, Excel export, billing integration, and an activation test that checks every declared command is registered):
 
-- **Terraform/HCL parsing** — resources, variables, numeric/boolean attributes, variable-reference resolution.
-- **Cost calculation** for:
-  - **AWS**: EC2 instances, RDS databases, S3 buckets, EBS volumes, NAT gateways, Load Balancers (`lb`/`alb`/`nlb`)
-  - **GCP**: Compute Engine instances, Cloud SQL, Cloud Storage, Persistent Disks
-  - **Azure**: Virtual Machines, SQL Databases, Storage Accounts, Managed Disks
+- **Terraform/HCL parsing**: resources, variables, numeric/boolean attributes, and variable-reference resolution.
+- **Cost calculation** with built-in fallback pricing for 60+ resource types, including:
+  - **AWS**: EC2 (incl. root volume), RDS (incl. storage + Multi-AZ), Aurora/DocumentDB/Neptune instances, S3, EBS, EFS, NAT gateways, load balancers, EKS clusters and node groups, ElastiCache clusters and replication groups, Lambda, DynamoDB, OpenSearch, Redshift, MSK, Elastic IPs, interface VPC endpoints, Site-to-Site VPN, Route 53 zones, KMS keys, Secrets Manager, ECR, CloudWatch Logs
+  - **GCP**: Compute Engine, Cloud SQL (incl. `db-custom-*` tiers, HA, disk), Cloud Storage, persistent disks, GKE clusters and node pools, Memorystore, static IPs, forwarding rules, Cloud NAT, Cloud VPN
+  - **Azure**: VMs and VM scale sets, SQL Database (`azurerm_sql_database` and `azurerm_mssql_database`), PostgreSQL/MySQL Flexible Server, Storage Accounts, Managed Disks, AKS clusters (Free/Standard tier) and node pools, Azure Cache for Redis, App Service plans, public IPs, Standard load balancers, NAT gateways, Container Registry, VNet gateways
+  - **Free plumbing** (VPCs, subnets, security groups, route tables, IAM, subnet groups, resource groups, …) is priced at **$0** rather than a guess.
+  - Literal **`count` / `for_each`** on a resource multiplies its cost. Spot/preemptible capacity gets a ~70% discount.
 - **Inline cost decorations** next to each resource, live as you type (debounced, default 2s).
 - **Total infrastructure cost header** at the top of the file (green/yellow/red depending on budget status).
 - **Status bar total cost** display.
-- **Optional Infracost CLI integration** for real pricing data (falls back to built-in estimates automatically if the CLI/API key isn't available — see `infracostAvailable` in the activation log).
-- **Budget thresholds** via an optional `terraform.budget.json` file per workspace — `limit_1/2/3` turn the header yellow with a budget-message block, `final_limit` turns it red and raises an error diagnostic + popup. Threshold-crossing is watched live (the extension re-evaluates when the budget file is created/changed/deleted).
-- **AI cost optimization suggestions** — pick a provider (Gemini, Claude, GPT, DeepSeek, or Groq), save its API key securely, and get concrete, resource-specific suggestions (rightsizing, reserved capacity, architecture swaps) for the active file's actual resources and costs. User-triggered only, not automatic. See [AI cost optimization](#ai-cost-optimization) below.
-- **Workspace-wide dashboard** — a **This file / Whole workspace** toggle scans every `.tf` file (via `src/workspace-scanner.js`) and re-aggregates the same charts across the whole project, plus a cost-by-file/module breakdown that only makes sense at that scope. See [Cost dashboard](#cost-dashboard) below.
-- **AI capacity & scaling suggestions** — tell it expected load (users/day, requests/day, growth) via an interactive input wizard, saved to `terraform.capacity.json`, and get scale-up/scale-down suggestions reasoned against that load rather than just cost. Same AI provider/key as cost suggestions; separate, explicit trigger. See [Capacity & scaling](#capacity--scaling) below.
-- **Excel cost report export** — a multi-sheet `.xlsx` (Summary, per-resource Resources sheet, By Provider, By Resource Type, By File/Module for workspace scope, 12-Month Forecast, Budget, Capacity Inputs, and cached AI/Scaling Suggestions if you've run either this session) for sharing with people who don't use VS Code. See [Exporting a cost report](#exporting-a-cost-report) below.
-- **GitHub Action for PR cost-diff comments** — `.github/workflows/terraform-cost.yml` comments the estimated monthly cost (and the delta vs. the PR's base branch) on every PR touching a `.tf` file, using the *same* parser/calculator the extension itself uses via a small headless CLI wrapper (`scripts/ci-cost-report.js`), not a second implementation. See [CI: PR cost-diff comments](#ci-pr-cost-diff-comments) below.
-- **Scope-aware AI suggestions** — the AI cost/scaling cards analyze whichever scope the dashboard currently shows: the active file, or (switch to "Whole workspace" first) every resource across the entire project, each suggestion tagged with its source file. Workspace-scope calls cap at the 150 highest-cost resources to avoid silently exceeding a provider's context window on a large project.
-- **Slack/Teams budget alert webhooks** — an optional `terraform.budget.json` threshold crossing can also post to a Slack or Microsoft Teams incoming webhook, not just the in-editor popup — same anti-spam "only on crossing into a higher level" logic as the popup, one source of truth for both. See [Budget alert webhooks](#budget-alert-webhooks) below.
-- **Module-graph resolution** — workspace scope follows local `module "x" { source = "./..." }` calls the way real Terraform does: a module's variables come from what its caller actually passed in (falling back to the module's own `default`), and a module instantiated twice with different values produces two correctly-different resolved resource sets, not one shared/flattened one. See [Module-graph resolution](#module-graph-resolution) below.
-- **`terraform plan`-based costing** — load a real `terraform show -json` plan (or a binary `.tfplan`, auto-converted if `terraform` is on PATH) and cost exactly what will exist after it applies — accurate for anything static parsing can't evaluate (`count`/`for_each`, computed values, module outputs), since Terraform's own plan engine already resolved all of it. See [Terraform plan-based costing](#terraform-plan-based-costing) below.
-- **Cost history tracking** — explicitly record a timestamped snapshot of the current scope's total to `terraform-cost-history.json`, and see real recorded totals (not a projection) as a trend chart in the dashboard. See [Cost history](#cost-history) below.
-- **Commands** wired up in the Command Palette: `Calculate Costs`, `Toggle Cost Display`, `Refresh Cost Estimates`, `Toggle Total Cost Header`, `Show Cost Dashboard`, `Show Workspace Cost Dashboard`, `Get AI Cost Optimization Suggestions`, `Set/Clear AI Provider API Key`, `Get Scaling Suggestions`, `Set Capacity & Scaling Inputs`, `Export Cost Report (Excel)`, `Set/Clear Budget Alert Webhook`, `Calculate Costs from Terraform Plan`, `Record Cost Snapshot`.
-- **Error handling/logging** via `src/error-handler.js`, including `clearErrorLog` / `exportErrorLog` commands — these two are registered in code but not yet declared in `package.json`'s `contributes.commands`, so they run from the Command Palette under their raw id rather than a friendly title.
-- **20+ configuration settings** (see table below).
+- **Infracost CLI integration** for real pricing data. It is used automatically when the `infracost` CLI is installed and has an API key (either `terraformCost.infracostApiKey` or the CLI's own `infracost auth login`). Otherwise the built-in prices are used. Infracost results are matched by full resource address, including `module.x.` prefixes and `[index]` instances.
+- **Budget thresholds** via an optional `terraform.budget.json` file per workspace: `limit_1/2/3` turn the header yellow with a budget-message block, and `final_limit` turns it red and raises an error diagnostic and popup. Threshold crossing is watched live (budgets are re-evaluated when the file is created, changed or deleted).
+- **AI cost optimization suggestions**: pick a provider (Gemini, Claude, GPT, DeepSeek, or Groq), save its API key securely, and get concrete, resource-specific suggestions. See [AI cost optimization](#ai-cost-optimization).
+- **Workspace-wide dashboard**: a **This file / Whole workspace** toggle that scans every `.tf` file and re-aggregates the same charts, plus a cost-by-file/module breakdown. See [Cost dashboard](#cost-dashboard).
+- **AI capacity & scaling suggestions** against expected load stored in `terraform.capacity.json`. See [Capacity & scaling](#capacity--scaling).
+- **Excel cost report export**: a multi-sheet `.xlsx`. See [Exporting a cost report](#exporting-a-cost-report).
+- **GitHub Action for PR cost-diff comments**. See [CI: PR cost-diff comments](#ci-pr-cost-diff-comments).
+- **Slack/Teams budget alert webhooks** for both file-scope and whole-workspace threshold crossings. Teams alerts use Adaptive Cards, which work with both Teams Workflows webhooks and classic Incoming Webhooks. See [Budget alert webhooks](#budget-alert-webhooks).
+- **Module-graph resolution**, covering local modules, **remote modules** (registry, git, …) after `terraform init`, and `count`/`for_each` on module blocks. See [Module-graph resolution](#module-graph-resolution).
+- **`terraform plan`-based costing**. See [Terraform plan-based costing](#terraform-plan-based-costing).
+- **Cost history tracking**. See [Cost history](#cost-history).
+- **Estimated vs. actual cloud spend**: pulls last month's and month-to-date spend from AWS Cost Explorer, Azure Cost Management and the GCP BigQuery billing export through each provider's own CLI login, and compares it against the Terraform estimate. See [Actual cloud spend](#actual-cloud-spend).
+- **Error handling and logging** via `src/error-handler.js`, with `Export Error Log` / `Clear Error Log` commands.
+- **Packaging**: `npm run vsix` builds a ~355 KB `.vsix` (webpack-bundled, icon included). `npm audit` reports 0 vulnerabilities and ESLint reports 0 warnings.
 
 ⚠️ **Known gaps / not yet done:**
 
-- **No `webpack.config.js`** — `npm run package` / `compile` / `watch` reference webpack but there's no config for it in the repo, so those scripts currently fail. The extension doesn't need bundling to run or test (it `require()`s `src/*.js` directly), so this only matters for producing a packaged `.vsix` for the Marketplace.
-- **Not published anywhere** — `package.json` still has placeholder `publisher: "UnknownPublisher"` and a `yourusername` GitHub URL.
-- **`npm audit`** currently reports 7 vulnerabilities (3 moderate, 4 high) — most in dev-only tooling (eslint 8.x line, etc.), plus one new one from adding `exceljs`: it depends on a `uuid` version with a buffer-bounds issue (only triggers if code passes a custom undersized buffer into uuid generation — unlikely how `exceljs` uses it internally, but real). None exploit-relevant for local development; worth revisiting before a real release. `npm audit fix --force` would resolve the `exceljs` one but downgrades it to 3.4.0, a breaking change — not applied.
-- **18 `no-unused-vars` ESLint warnings** (0 errors) — cosmetic cleanup, not blocking.
-- **The formal 19-test `npm test` suite only covers the parser/calculator**, not most of the newer UI-facing features (the scope toggle, AI cost/scaling suggestions, the capacity wizard). Those are syntax-checked and lint-clean but only verified by hand via F5, not by an automated regression suite — a real gap if this grows further. Several of the newer *non-UI* modules do have real (if informal, one-off) verification behind them, just not wired into `npm test`: the Excel exporter (build → write → reopen with `exceljs`'s own reader → check every sheet), `src/module-resolver.js` (8 scenarios including the specific mutation bug two instantiations of one module could hit), and `terraform plan`-based costing (verified against a genuine `terraform init && plan && show -json` run, not a hand-authored JSON).
-- **Module-graph resolution only covers local module sources.** A registry/git/other remote `module` source (anything not starting with `./` or `../`) can't be resolved statically — a resource that lives only inside one simply won't be found by workspace scope. `count`/`for_each` on a `module` block itself also isn't handled. Load a real `terraform show -json` plan instead (see below) for a project that leans on remote modules — Terraform's own plan engine has already resolved all of that by the time that JSON exists.
-- **The GitHub Action (`.github/workflows/terraform-cost.yml`) has never actually run on GitHub's runners.** Its logic is verified locally — the CLI script against real fixtures, the comment create/update logic against mocked GitHub API calls — but live execution needs a real PR, which requires a push that wasn't made autonomously. First real PR touching a `.tf` file will be the first real test.
-- **Slack/Teams budget webhooks have never posted to a real channel.** Payload construction and error handling are verified against a mocked `fetch` (both providers, an HTTP-error case, and a missing-URL case) — but there's no real Slack/Teams webhook URL to test actual delivery against. Also: Microsoft has been deprecating classic Office 365 Connector webhooks in Teams in favor of Workflows/Power Automate, so the Teams integration's `MessageCard` format may need updating depending on how a given Teams workspace is configured — worth checking before relying on it.
-- **Budget webhooks only fire on file-scope threshold crossings**, the same trigger point the in-editor popup already uses. Workspace-scope's budget meter is visual-only in the dashboard and doesn't independently post an alert.
+- **Not yet published to the Marketplace.** The package builds, but publishing needs a Marketplace publisher account and a Personal Access Token. `package.json` uses `publisher: "snakeyeye497"`, so change it if your publisher ID differs. See [Publishing](#publishing).
+- **Static parsing can't evaluate expressions.** `count = var.enabled ? 1 : 0`, `local.*` values, function calls and `each.value` aren't evaluated, so such resources are costed as a single instance. Registry modules lean on these heavily (e.g. the AWS VPC module's optional VPN gateway). For exact numbers on such projects, use [plan-based costing](#terraform-plan-based-costing).
+- **Usage-based services are estimates.** Lambda (1M invocations/mo at 200ms), S3/Cloud Storage/Blob/EFS (100 GB), CloudWatch Logs (5 GB ingested) and DynamoDB on-demand requests use stated assumptions, not real usage. Infracost has the same limitation without a usage file.
+- **Built-in prices are approximate us-east-1 / us-central1 / eastus on-demand list prices.** The `terraformCost.region` setting doesn't change them. Use Infracost for region-accurate pricing.
+- **Actual-spend comparison has only been tested against mocked CLI output**, covering the response parsing, period math, Windows/POSIX command running, temp-file cleanup and per-provider error isolation. It has not been run against a real AWS/Azure/GCP billing account. Note that AWS charges $0.01 per Cost Explorer request, and each comparison run makes 2.
+- **The GitHub Action has never run on GitHub's runners.** Its logic is verified locally. The first PR touching a `.tf` file will be its first real run.
+- **Slack/Teams webhooks have never posted to a real channel.** Payloads and error handling are tested against a stubbed `fetch`.
 
 ## Installation (cloning from GitHub)
 
@@ -94,7 +95,12 @@ That's it for getting the code runnable — `npm install` pulls in everything ne
 - (Optional) An [Infracost API key](https://www.infracost.io) for accurate live pricing — without one, the extension uses its built-in fallback pricing tables.
 - (Optional) An API key for AI cost optimization suggestions — from [Google AI Studio](https://aistudio.google.com/apikey) (Gemini), [Anthropic](https://console.anthropic.com/) (Claude), [OpenAI](https://platform.openai.com/) (GPT), [DeepSeek](https://platform.deepseek.com/) (low-cost, no minimum spend), or [Groq](https://console.groq.com/) (genuinely free tier, no card required — the easiest one to try first). Note: a Gemini key created through Cloud/Vertex billing rather than the plain AI Studio flow may require a prepay balance before it can generate content at all; the free-tier AI Studio key usually doesn't.
 
-There is no published `.vsix` / Marketplace listing yet, so the only way to use the extension today is to run it from source — see **[RUNNING.md](RUNNING.md)** for the step-by-step walkthrough (Run Extension via F5, the commands to try, and what to expect).
+There is no Marketplace listing yet. Either run it from source (see **[RUNNING.md](RUNNING.md)**: press F5, which builds `dist/` first), or build and install a `.vsix` locally:
+
+```bash
+npm run vsix                                     # -> terraform-cost-calculator-1.0.0.vsix
+code --install-extension terraform-cost-calculator-1.0.0.vsix
+```
 
 ## Configuration
 
@@ -116,6 +122,10 @@ Access via VS Code Settings (`Ctrl+,`) → search "Terraform Cost", or edit `set
 | `terraformCost.expensiveThreshold` | `100` | Threshold (USD/mo) to highlight expensive resources |
 | `terraformCost.ai.provider` | `none` | AI provider for cost suggestions: `none`, `gemini`, `claude`, `openai`, `deepseek`, `groq` |
 | `terraformCost.ai.model` | `""` | Override the default model id for the selected AI provider |
+| `terraformCost.notifications.provider` | `none` | Budget alert webhook target: `none`, `slack`, `teams` (set via the webhook command) |
+| `terraformCost.billing.awsProfile` | `""` | AWS CLI profile for the actual-spend comparison (blank = default credentials) |
+| `terraformCost.billing.azureSubscriptionId` | `""` | Azure subscription for the actual-spend comparison (blank = `az account show` default) |
+| `terraformCost.billing.gcpBillingExportTable` | `""` | BigQuery billing export table (`project.dataset.table`) for the GCP actual-spend comparison |
 
 API keys for the AI provider are **not** a setting — set them via the `Terraform Cost: Set AI Provider API Key` command, which stores them in VS Code's SecretStorage rather than plain-text `settings.json` (unlike `infracostApiKey`, which currently is a plain string setting).
 
@@ -164,6 +174,9 @@ Drop a `terraform.budget.json` in your workspace root (or any parent folder of y
 | `Terraform Cost: Clear Budget Alert Webhook` | Remove the saved webhook and disable alerts |
 | `Terraform Cost: Calculate Costs from Terraform Plan` | Pick a `terraform show -json` plan (or binary `.tfplan`) and cost every resource that will exist after it applies |
 | `Terraform Cost: Record Cost Snapshot` | Append the current scope's total to `terraform-cost-history.json` for the dashboard's Cost History chart |
+| `Terraform Cost: Compare Estimate with Actual Cloud Spend` | Pull real spend from AWS/Azure/GCP billing and open an estimate-vs-actual report |
+| `Terraform Cost: Export Error Log` | Save the extension's internal error log to a file |
+| `Terraform Cost: Clear Error Log` | Clear the internal error log |
 
 Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 
@@ -186,17 +199,19 @@ Both scopes share the same rendering code (`src/cost-dashboard.js`, a `vscode.We
 
 ## Module-graph resolution
 
-Workspace scope doesn't just flatten every file's resources into one list — `src/module-resolver.js` follows local `module "x" { source = "./..." }` calls the way real Terraform does:
+Workspace scope doesn't just flatten every file's resources into one list — `src/module-resolver.js` follows `module "x" { source = "..." }` calls the way real Terraform does:
 
 - A module's variables come from what its caller actually passed in (`instance_type = "m5.xlarge"` in the `module` block), falling back to the module's own `default` only if the caller didn't pass one.
 - A module instantiated **more than once** — e.g. `module "prod" { source = "./modules/app", instance_type = "m5.xlarge" }` and `module "dev" { source = "./modules/app", instance_type = "t3.micro" }` — produces **two independently-resolved resource sets**, not one shared/flattened one. (This needed a specific fix: the naive approach mutates parsed resource objects in place, so a second instantiation would silently inherit the first's already-resolved values — module-resolver.js deep-clones before resolving each instantiation to avoid that.)
 - A caller can forward its own variable straight into a child module (`foo = var.bar`) and it resolves correctly against the caller's own scope.
 - Nested modules (a module that itself calls further modules) work, with a cycle guard and a depth limit (12) against a module accidentally referencing itself.
+- **`count` / `for_each` on a module block** instantiates it once per instance (`workers[0]`, `workers[1]`, `regional["eu"]`, …). This works for literal values and for values passed through `var.x`; `count = 0` removes the module.
+- **Remote sources** (Terraform Registry, git, S3, …) are resolved through the `.terraform/modules/modules.json` manifest that `terraform init` (or `terraform get`) writes. The downloaded module source in `.terraform/modules/` is read even though that folder is otherwise excluded from scanning.
 - Each resolved resource is tagged with a `modulePath` (e.g. `app.compute` for a nested call) shown throughout the dashboard, export, and AI suggestions alongside — or in place of — the source file.
 
-**What's out of scope, deliberately**: remote module sources (Terraform Registry, git, S3 — anything not starting with `./` or `../`) can't be resolved statically; a resource that lives only inside one won't be found by workspace scope. Neither is `count`/`for_each` on a `module` block itself. For a project that leans on either, load a real [`terraform` plan](#terraform-plan-based-costing) instead — Terraform's own plan engine has already resolved all of that.
+**Limits**: a remote module that hasn't been downloaded yet (no `terraform init`) can't be resolved and is logged as unresolved rather than silently dropped. Expressions inside modules (`local.*`, conditionals, `each.value`) aren't evaluated. For a project that leans on those, load a real [`terraform` plan](#terraform-plan-based-costing) instead, because Terraform's own plan engine has already resolved all of it.
 
-**Verification**: `src/module-resolver.js` has no `vscode` dependency (pure functions over already-parsed content), so it's directly unit-tested — 8 scenarios including no-modules (must match old behavior exactly), single/multiple instantiation, variable passthrough, nesting, a remote source (skipped gracefully, not a crash), and cycle detection. Also re-run against the real `test-fixtures/complex-project` fixture end-to-end and confirmed it produces the *exact* previously-verified total ($1,345.81, 31 resources) — a genuine regression check, not an assumption, since that fixture's module calls happen to pass no overrides.
+**Verification**: `src/module-resolver.js` has no `vscode` dependency, so it is unit-tested in `test/suite/module-resolver.test.js`. The tests cover overrides, multiple call sites, var passthrough, module `count`/`for_each` (including `count = 0`), remote and nested-remote modules via a manifest, unresolved remote modules, and roots-vs-modules. It was also run against the real `terraform-aws-modules/vpc/aws` 5.13.0 registry module downloaded with `terraform get`. All 77 of the module's resources resolved through the manifest, alongside a local module with `count = 2`.
 
 ## AI cost optimization
 
@@ -279,7 +294,7 @@ Static parsing (everything above) can't evaluate `count`/`for_each`, conditional
 
 ```
 💰 Terraform Cost Estimate
-$1,400.50/mo (base: $1,345.81/mo) — 📈 +$54.69/mo
+$1,384.74/mo (base: $1,330.05/mo) — 📈 +$54.69/mo
 
 | Provider | Monthly |
 |---|---|
@@ -292,7 +307,7 @@ $1,400.50/mo (base: $1,345.81/mo) — 📈 +$54.69/mo
 
 **How it works:** `scripts/ci-cost-report.js` is a small headless CLI wrapper that reuses `src/terraform-parser.js` + `src/cost-calculator.js` directly — the same production code the VS Code extension itself runs, not a second implementation to drift out of sync with the first. Both modules only ever touch `vscode.workspace.getConfiguration(...).get(key, default)`, never any other `vscode` API, as long as `TerraformCostCalculator.initialize()` is never called (which the CLI deliberately never does — that's what would otherwise try to shell out to a real `infracost` binary that won't exist in CI) — so a one-function stub returning the caller's own default for every config key is enough to run them standalone. The workflow checks out both the PR branch and its base into separate directories, runs the CLI against each, and diffs the totals.
 
-**Try it**: `node scripts/ci-cost-report.js test-fixtures/complex-project` locally — should print the same `$1,345.81` total documented in that fixture's own README, since it's the identical calculation path.
+**Try it**: `node scripts/ci-cost-report.js test-fixtures/complex-project` locally — should print the same `$1,330.05` total documented in that fixture's own README, since it's the identical calculation path.
 
 **Honest limitation**: the CLI script and the PR-comment logic are both verified locally (the CLI against real fixtures with known-correct numbers; the comment-building/create-vs-update logic executed against mocked GitHub API calls) — but the workflow's actual execution on GitHub's runners has not been verified, since that requires pushing a branch and opening a real PR, which wasn't done autonomously. Open a test PR against a `.tf` file to see it run for real the first time.
 
@@ -301,13 +316,14 @@ $1,400.50/mo (base: $1,345.81/mo) — 📈 +$54.69/mo
 A budget threshold crossing (`terraform.budget.json`) can post to a Slack or Microsoft Teams incoming webhook, not just show the in-editor popup — useful for a team channel that doesn't have everyone in VS Code watching for it.
 
 **Setup:**
-1. Create an incoming webhook URL in Slack ([api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)) or Teams (a channel's connector settings), then run `Terraform Cost: Set Budget Alert Webhook (Slack/Teams)` and paste it in. Stored via `SecretStorage`, same as the AI provider keys — never in `settings.json`. This also sets `terraformCost.notifications.provider` to match.
+1. Create an incoming webhook URL in Slack ([api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)) or Teams (recommended: a **Workflows** "When a Teams webhook request is received" flow; classic channel Incoming Webhooks also work), then run `Terraform Cost: Set Budget Alert Webhook (Slack/Teams)` and paste it in. Stored via `SecretStorage`, same as the AI provider keys — never in `settings.json`. This also sets `terraformCost.notifications.provider` to match.
 2. That's it — the next time a threshold in `terraform.budget.json` is crossed, both the existing popup *and* the webhook fire together.
 
 **Design notes:**
 - **Same trigger point as the existing popup, not a parallel schedule.** `checkBudgetAndWarn()` already tracks "have we notified for this level yet" per file to avoid spamming a popup on every keystroke; the webhook fires from that exact same `level > prev` check, so there's one source of truth for "did we already alert on this," not two mechanisms that could drift out of sync.
-- **Verified against a mocked `fetch`, not a real channel** — both providers' payload shapes, an HTTP-error case, and a missing-URL case were all confirmed to behave correctly, but there's no real Slack/Teams webhook to test actual delivery against. See the Known Gaps note about Teams' `MessageCard` format specifically.
-- File-scope only, matching the existing popup's scope — the workspace dashboard's budget meter is visual-only and doesn't independently trigger an alert.
+- **Teams messages are Adaptive Cards** (a `message` with an `application/vnd.microsoft.card.adaptive` attachment). Teams Workflows webhooks require this format, and classic Incoming Webhooks accept it too. The legacy `MessageCard` format is no longer used.
+- **Whole-workspace alerts too**: refreshing the dashboard's workspace scope evaluates the workspace total against the root `terraform.budget.json` and alerts on a crossing into a higher level, with the same anti-spam gate tracked separately from per-file alerts.
+- **Tested against a stubbed `fetch`, not a real channel** (`test/suite/managers.test.js`). The tests cover both payload shapes, an HTTP error, and a missing URL.
 
 ## Cost history
 
@@ -320,17 +336,48 @@ The 12-month forecast chart is a projection ("if usage stays flat vs. grows ~5%/
 - `terraform-cost-history.json` is plain JSON at the workspace root (or the active file's/plan's own directory if no workspace is open) — commit it to track cost over time alongside the infrastructure changes that caused it, or gitignore it if you'd rather keep it purely local; the extension doesn't take a position on that for you.
 - **Verified via `src/cost-history-manager.js`'s own standalone tests** (append/reload round-trips correctly; the 200-entry cap prunes oldest-first and keeps the newest) and an Excel round-trip test for the new Cost History sheet — not just syntax-checked.
 
+## Actual cloud spend
+
+`Terraform Cost: Compare Estimate with Actual Cloud Spend` asks which providers to query, then opens a Markdown report showing:
+
+- the Terraform estimate per provider (a whole-workspace scan),
+- **last full month's actual spend**,
+- **month-to-date spend**, plus a straight-line projection for the full month and its difference from the estimate,
+- the top 10 services by actual spend for each provider.
+
+It runs each provider's own CLI under your existing login, and the extension stores no cloud credentials:
+
+| Provider | How | Setup |
+|---|---|---|
+| AWS | `aws ce get-cost-and-usage` (Cost Explorer) | `aws configure` / SSO; optional `terraformCost.billing.awsProfile`. **AWS bills $0.01 per request; each run makes 2.** |
+| Azure | Cost Management Query API via `az rest` | `az login`; optional `terraformCost.billing.azureSubscriptionId` |
+| GCP | `bq query` against your [Cloud Billing BigQuery export](https://cloud.google.com/billing/docs/how-to/export-data-bigquery) | `gcloud auth login`; set `terraformCost.billing.gcpBillingExportTable` (you're prompted the first time) |
+
+Actual spend covers **everything billed to that account, subscription or billing export**, including resources that this Terraform doesn't manage, so read big gaps with that in mind. If one provider fails (for example, not logged in), its error is shown in the report and the other providers' results still appear.
+
+**Verification**: `src/billing-integration.js` has no `vscode` dependency and takes an injectable command runner. `test/suite/billing-integration.test.js` covers response parsing for all three providers, billing-period math (including year boundaries), BigQuery table-name validation, temp-file cleanup and the report output. It has **not** been run against a live billing account yet.
+
 ## Development
 
 | Task | Command |
 |---|---|
+| Build `dist/extension.js` (dev) | `npm run compile` (or `npm run watch`) |
 | Lint | `npm run lint` |
-| Run tests (downloads a VS Code test instance on first run) | `npm test` |
-| Run the extension interactively | See [RUNNING.md](RUNNING.md) |
+| Run tests (compiles + lints first; downloads a VS Code test instance on first run) | `npm test` |
+| Build a `.vsix` | `npm run vsix` |
+| Run the extension interactively | Press F5 (runs `npm: compile` first). See [RUNNING.md](RUNNING.md) |
+
+The extension's entry point is `extension.js`, but VS Code loads the webpack bundle `dist/extension.js` (`"main"` in `package.json`). Re-run `npm run compile` (F5 does this for you) after changing code.
+
+## Publishing
+
+1. Create a publisher at [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage) and make sure its ID matches `"publisher"` in `package.json` (currently `snakeyeye497`).
+2. Create an Azure DevOps Personal Access Token with the **Marketplace → Manage** scope.
+3. `npx vsce login <publisher-id>`, then `npx vsce publish` (this runs the production webpack build via `vscode:prepublish`).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 

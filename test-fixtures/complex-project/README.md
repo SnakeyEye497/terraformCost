@@ -8,7 +8,7 @@ Every instance type / tier / size used here is a real key in `src/cost-calculato
 
 ```
 complex-project/
-├── providers.tf, variables.tf, main.tf, outputs.tf   (root — main.tf's module blocks are cosmetic, see note below)
+├── providers.tf, variables.tf, main.tf, outputs.tf   (root — main.tf calls every module below)
 ├── terraform.budget.json
 ├── terraform.capacity.json
 └── modules/
@@ -23,7 +23,7 @@ complex-project/
 
 11 `.tf` files, ~26 cost-relevant resources (plus a handful of free supporting resources — VPC/subnets/EIPs) across all three providers.
 
-**Note on the module blocks in `main.tf`**: they're there for authenticity — a real project would have them — but Matali's workspace scanner (`src/workspace-scanner.js`) doesn't follow `module "x" { source = ... }` into a dependency graph. It just finds every `resource` block in every `.tf` file, flat. That's *why* this fixture puts real resources directly in each `modules/*/main.tf` rather than relying on the root to "call" them — the scanner would find them either way, but this mirrors how the actual scanning works.
+**Note on the module blocks in `main.tf`**: the workspace scanner follows them (`src/module-resolver.js`) — the root directory is scanned directly and each `modules/*` directory is resolved through its call site, the way real Terraform does. None of the calls pass overrides, so every module resolves with its own defaults.
 
 **Note on the one `variable` block** (in `modules/compute/main.tf`): Matali's parser resolves `var.x` references only from `variable` blocks in the *same file* — it parses and resolves each file independently, not across a module's own files the way real Terraform does. So unlike a real project, variables can't be split into a separate `variables.tf` per module here and still resolve to real costs. Known limitation of the current parser, not something this fixture works around silently — worth knowing if a suggestion or cost looks like $0 for something referencing a variable.
 
@@ -33,18 +33,18 @@ These aren't hand-calculated — verified by actually running `src/terraform-par
 
 | Module | Monthly (verified) |
 |---|---|
-| networking | $118.62 |
+| networking | $89.43 |
 | compute | $231.26 |
-| database | $173.74 |
+| database | $185.24 |
 | storage | $70.60 |
 | kubernetes | $73.00 |
-| gcp | $334.10 |
-| azure | $344.48 |
-| **Total** | **$1,345.81/mo across 31 resources** |
+| gcp | $344.32 |
+| azure | $336.20 |
+| **Total** | **$1,330.05/mo across 31 resources** |
 
 `terraform.budget.json` is tuned so this sits **just past `limit_3` ($1,100) but under `final_limit` ($1,500)** by default — the dashboard/header should show **yellow, "near limit"** out of the box. Bump any one instance size up (e.g. `batch_processor` to something bigger) to push it past `final_limit` and watch it turn red — a good live demo of the escalation without having to build the whole budget-crossing scenario from scratch.
 
-**A finding from verifying this, not something this fixture works around**: `networking`'s $118.62 is higher than a naive "VPC/subnets/EIPs are free" assumption (~$82) would suggest — `aws_vpc`, `aws_subnet`, and `aws_eip` aren't actually cased in `calculateAWSCost()`'s switch statement, so they fall through to `getDefaultCost()`'s flat **$7.30/mo "estimated, unknown resource type"** rather than $0, even though `isResourceCostRelevant()` correctly excludes them from the cost-relevant list and AI-suggestion targeting. That's existing behavior in `src/cost-calculator.js`, not something introduced here — worth knowing if the dashboard's total looks a little higher than expected for a project with several VPCs/subnets/EIPs in it.
+**Note on `networking`**: `aws_vpc` and `aws_subnet` are priced at $0 (they have no direct AWS charge — see `FREE_RESOURCE_PATTERNS` in `src/cost-calculator.js`), and each `aws_eip` at the public-IPv4 rate ($3.65/mo). Earlier versions priced all three at a flat $7.30/mo "unknown resource type" estimate, which is why older docs quoted $118.62 for this module and $1,345.81 overall.
 
 ## Deliberate AI-suggestion bait
 

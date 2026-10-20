@@ -1,105 +1,48 @@
-### VS Code
-.vscode/
+### Dependencies
+node_modules/
 
-### MacOS
-.DS_Store
+### VS Code (launch/tasks configs are shared; personal settings are not)
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+.vscode-test/
 
-### Environment / Secrets
-.env
-.env.*
-*.secret
-secrets.json
-
-### Logs
-logs/
-*.log
-
-### Editor directories and files
-*.sublime-workspace
-*.swp
-
-### Bundler / Build
+### Build output
 dist/
 build/
 out/
-
-### Terraform local state and crash logs
-.terraform/
-terraform.tfstate
-terraform.tfstate.*
-crash.log
-
-### Misc
-.history/
-Thumbs.db
-.vscode-test/
-*.vsix
-.env
-
-
-### VS Code
-.vscode/
-
-### MacOS
-.DS_Store
-
-### Environment / Secrets
-.env
-.env.*
-*.secret
-secrets.json
-
-### Logs
-logs/
-*.log
-
-### Editor directories and files
-*.sublime-workspace
-*.swp
-
-### Bundler / Build
-dist/
-build/
-out/
-
-### Terraform local state and crash logs
-.terraform/
-terraform.tfstate
-terraform.tfstate.*
-crash.log
-
-### Misc
-.history/
-Thumbs.db
-.vscode-test/
-*.vsix
-.env
-
-
-node_modules
-.vscode-test/
-*.vsix
-.DS_Store
-*.log
-.env
-.vscode/settings.json
-
-# Build output
-out/
-dist/
-
-# Test coverage
 coverage/
+*.vsix
 
-# Infracost cache
+### Environment / Secrets
+.env
+.env.*
+*.secret
+secrets.json
+
+### Logs
+logs/
+*.log
+
+### Terraform local state and crash logs
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+*.tfplan
+
+### Infracost cache
 .infracost/
 infracost-*.json
 
-# IDE
+### Editor / OS
 .idea/
+.history/
+*.sublime-workspace
 *.swp
 *.swo
 *~
-
-# OS
+.DS_Store
 Thumbs.db

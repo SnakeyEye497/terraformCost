@@ -16,6 +16,7 @@ const excelExporter = require('./src/excel-exporter');
 const NotificationManager = require('./src/notification-manager');
 const CostHistoryManager = require('./src/cost-history-manager');
 const { extractResourcesFromPlan, getPlanMetadata } = require('./src/plan-parser');
+const billingIntegration = require('./src/billing-integration');
 const debounce = require('debounce');
 
 const execFileAsync = promisify(execFile);
@@ -53,18 +54,40 @@ const RESOURCE_TYPE_LABELS = {
     aws_eks_cluster: 'EKS Cluster',
     aws_rds_cluster: 'RDS Cluster',
     aws_elasticache_cluster: 'ElastiCache',
+    aws_elasticache_replication_group: 'ElastiCache Replication Group',
+    aws_eks_node_group: 'EKS Node Group',
+    aws_rds_cluster_instance: 'Aurora Instance',
+    aws_lambda_function: 'Lambda Function',
+    aws_dynamodb_table: 'DynamoDB Table',
+    aws_efs_file_system: 'EFS File System',
+    aws_eip: 'Elastic IP',
+    aws_vpc_endpoint: 'VPC Endpoint',
+    aws_opensearch_domain: 'OpenSearch Domain',
+    aws_redshift_cluster: 'Redshift Cluster',
+    aws_msk_cluster: 'MSK Cluster',
     google_compute_instance: 'Compute Engine VM',
     google_sql_database_instance: 'Cloud SQL',
     google_storage_bucket: 'Cloud Storage',
     google_compute_disk: 'Compute Disk',
     google_container_cluster: 'GKE Cluster',
+    google_container_node_pool: 'GKE Node Pool',
+    google_redis_instance: 'Memorystore Redis',
+    google_compute_address: 'Static IP',
+    google_compute_forwarding_rule: 'Forwarding Rule',
     azurerm_virtual_machine: 'Virtual Machine',
     azurerm_linux_virtual_machine: 'Linux VM',
     azurerm_windows_virtual_machine: 'Windows VM',
     azurerm_sql_database: 'SQL Database',
+    azurerm_mssql_database: 'SQL Database',
+    azurerm_postgresql_flexible_server: 'PostgreSQL Flexible Server',
+    azurerm_mysql_flexible_server: 'MySQL Flexible Server',
     azurerm_storage_account: 'Storage Account',
     azurerm_managed_disk: 'Managed Disk',
-    azurerm_kubernetes_cluster: 'AKS Cluster'
+    azurerm_kubernetes_cluster: 'AKS Cluster',
+    azurerm_kubernetes_cluster_node_pool: 'AKS Node Pool',
+    azurerm_redis_cache: 'Azure Cache for Redis',
+    azurerm_service_plan: 'App Service Plan',
+    azurerm_public_ip: 'Public IP'
 };
 
 function humanizeResourceType(type) {
@@ -109,13 +132,13 @@ async function activate(context) {
         const budgetWatcher = vscode.workspace.createFileSystemWatcher('**/terraform.budget.json');
         const onBudgetChange = async (uri) => {
             // reload budget for folder and re-run analysis on open terraform files
-            await budgetManager.loadBudgetForFolder(vscode.Uri.file(uri.fsPath.replace(/\/terraform.budget.json$/,'')));
+            await budgetManager.loadBudgetForFolder(vscode.Uri.file(path.dirname(uri.fsPath)));
             await processOpenTerraformFiles();
         };
 
         budgetWatcher.onDidCreate(onBudgetChange, null, context.subscriptions);
         budgetWatcher.onDidChange(onBudgetChange, null, context.subscriptions);
-        budgetWatcher.onDidDelete(async (uri) => {
+        budgetWatcher.onDidDelete(async () => {
             // clear cache and diagnostics when deleted
             budgetManager.clearCache();
             budgetDiagnostics.clear();
@@ -293,7 +316,7 @@ function registerCommands(context) {
         const picked = await vscode.window.showQuickPick(
             [
                 { label: 'Slack', description: 'Incoming Webhook URL', value: 'slack' },
-                { label: 'Microsoft Teams', description: 'Incoming Webhook (Connector) URL', value: 'teams' }
+                { label: 'Microsoft Teams', description: 'Workflows webhook or Incoming Webhook URL', value: 'teams' }
             ],
             { placeHolder: 'Which chat platform is this webhook for?' }
         );
@@ -301,7 +324,7 @@ function registerCommands(context) {
 
         const url = await vscode.window.showInputBox({
             prompt: `Enter your ${picked.label} incoming webhook URL`,
-            placeHolder: picked.value === 'slack' ? 'https://hooks.slack.com/services/...' : 'https://....webhook.office.com/webhookb2/...',
+            placeHolder: picked.value === 'slack' ? 'https://hooks.slack.com/services/...' : 'https://...logic.azure.com/workflows/... or https://....webhook.office.com/webhookb2/...',
             password: true,
             ignoreFocusOut: true,
             validateInput: (value) => (value && value.startsWith('https://') ? null : 'Enter a valid https:// webhook URL')
@@ -342,7 +365,16 @@ function registerCommands(context) {
         await runRecordCostSnapshot();
     });
 
+    // Pull real spend from AWS Cost Explorer / Azure Cost Management / the GCP
+    // BigQuery billing export (via each provider's own CLI and existing login)
+    // and compare it against the Terraform estimate. User-triggered only —
+    // Cost Explorer bills per API request.
+    const compareActualSpendCommand = vscode.commands.registerCommand('terraformCost.compareActualSpend', async () => {
+        await runCompareActualSpend();
+    });
+
     context.subscriptions.push(
+        compareActualSpendCommand,
         calculateCostsCommand,
         toggleCostDisplayCommand,
         refreshCostsCommand,
@@ -1062,6 +1094,7 @@ async function buildWorkspaceDashboardAggregate() {
             const probePath = path.join(folders[0].uri.fsPath, '__terraformCost_probe__.tf');
             const b = await budgetManager.loadBudgetForFile(probePath);
             budget = evaluateBudget(b, agg.totals.monthly);
+            await checkWorkspaceBudgetAndAlert(folders[0].uri.fsPath, b, budget, fileMap.size);
             capacityConfig = await capacityManager.loadCapacityForFile(probePath);
             costHistory = await costHistoryManager.loadHistoryForFile(probePath);
         }
@@ -1286,6 +1319,66 @@ async function runRecordCostSnapshot() {
  * regardless of the panel's current scope, since the AI advisor always
  * reasons over the active file.
  */
+async function runCompareActualSpend() {
+    const config = vscode.workspace.getConfiguration('terraformCost');
+
+    const picks = await vscode.window.showQuickPick(
+        [
+            { label: 'AWS', description: 'Cost Explorer via the aws CLI — AWS bills $0.01 per request (2 per run)', value: 'aws', picked: true },
+            { label: 'Azure', description: 'Cost Management via az rest — requires az login', value: 'azure' },
+            { label: 'Google Cloud', description: 'BigQuery billing export via the bq CLI', value: 'gcp' }
+        ],
+        { canPickMany: true, placeHolder: 'Which providers should actual spend be pulled from?' }
+    );
+    if (!picks || picks.length === 0) return;
+    const providers = picks.map((p) => p.value);
+
+    let gcpBillingExportTable = config.get('billing.gcpBillingExportTable', '');
+    if (providers.includes('gcp') && !gcpBillingExportTable) {
+        gcpBillingExportTable = await vscode.window.showInputBox({
+            prompt: 'BigQuery table holding your Cloud Billing export (project.dataset.table)',
+            placeHolder: 'my-project.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX',
+            ignoreFocusOut: true,
+            validateInput: (v) => (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_$-]+$/.test(v || '') ? null : 'Expected project.dataset.table')
+        });
+        if (!gcpBillingExportTable) return;
+        await config.update('billing.gcpBillingExportTable', gcpBillingExportTable, vscode.ConfigurationTarget.Workspace);
+    }
+
+    await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Fetching actual cloud spend...', cancellable: false },
+        async () => {
+            let estimate = null;
+            try {
+                const items = await workspaceScanner.scan();
+                if (items.length > 0) estimate = aggregateCostItems(items);
+            } catch (err) {
+                console.warn('Actual-spend comparison: workspace estimate failed:', err.message);
+            }
+
+            const actual = await billingIntegration.fetchActualSpend(providers, {
+                awsProfile: config.get('billing.awsProfile', '') || undefined,
+                azureSubscriptionId: config.get('billing.azureSubscriptionId', '') || undefined,
+                gcpBillingExportTable
+            });
+
+            const markdown = billingIntegration.buildComparisonMarkdown(actual, estimate, {
+                currency: getCurrency(),
+                projectName: getProjectName(vscode.window.activeTextEditor?.document.uri.fsPath)
+            });
+            const doc = await vscode.workspace.openTextDocument({ content: markdown, language: 'markdown' });
+            await vscode.window.showTextDocument(doc, { preview: false });
+            await vscode.commands.executeCommand('markdown.showPreview', doc.uri);
+
+            const failed = actual.results.filter((r) => r.error);
+            if (failed.length > 0) {
+                vscode.window.showWarningMessage(
+                    `Could not fetch actual spend for ${failed.map((r) => r.provider).join(', ')} — see the report for details.`);
+            }
+        }
+    );
+}
+
 async function updateDashboard(document, validResourceCosts) {
     try {
         lastFileDashboardData = await buildDashboardAggregate(document, validResourceCosts);
@@ -1576,13 +1669,46 @@ async function checkBudgetAndWarn(filePath, totalMonthly) {
 }
 
 /**
+ * Workspace-scope counterpart of checkBudgetAndWarn's alerting: when the
+ * whole-workspace total crosses into a higher budget level than last
+ * alerted for this workspace root, show the popup and post the webhook.
+ * Uses the same per-key "last alerted level" gate as file scope (keyed by
+ * a `workspace:` prefix so it never collides with a real file path).
+ */
+async function checkWorkspaceBudgetAndAlert(rootPath, budgetConfig, evaluated, fileCount) {
+    if (!budgetManager) return;
+    const key = `workspace:${rootPath}`;
+    const level = evaluated ? evaluated.level : 0;
+    const prev = budgetManager.getNotificationLevelForFile(key) || 0;
+
+    if (level === 0) {
+        budgetManager.setNotificationLevelForFile(key, 0);
+        return;
+    }
+    if (level <= prev) return;
+
+    budgetManager.setNotificationLevelForFile(key, level);
+    const total = evaluated.current;
+    const message = level >= 4
+        ? `Workspace budget exceeded: total ${total.toFixed(2)} >= final_limit ${budgetConfig.final_limit}`
+        : `Workspace budget threshold reached (level ${level}): total ${total.toFixed(2)}`;
+    if (level >= 4) {
+        vscode.window.showErrorMessage(message);
+    } else {
+        vscode.window.showWarningMessage(message);
+    }
+    await sendBudgetWebhookAlert(path.join(rootPath, '__workspace__'), level, total, budgetConfig,
+        `Whole workspace (${fileCount} file${fileCount === 1 ? '' : 's'})`);
+}
+
+/**
  * Post a Slack/Teams alert for a budget threshold crossing, if a webhook is
  * configured. Called from the exact same "level > prev" gate the VS Code
  * popup uses, so there's one source of truth for "did we already alert on
  * this" — never a second, independent notification schedule to drift out of
  * sync with the popup/diagnostic behavior.
  */
-async function sendBudgetWebhookAlert(filePath, level, totalMonthly, budget) {
+async function sendBudgetWebhookAlert(filePath, level, totalMonthly, budget, fileLabel = path.basename(filePath)) {
     if (!notificationManager) return;
 
     const config = vscode.workspace.getConfiguration('terraformCost');
@@ -1603,7 +1729,7 @@ async function sendBudgetWebhookAlert(filePath, level, totalMonthly, budget) {
             limit: limitForLevel[level] ?? totalMonthly,
             currency: getCurrency(),
             projectName: getProjectName(filePath),
-            fileName: path.basename(filePath)
+            fileName: fileLabel
         });
     } catch (error) {
         console.error('Budget webhook alert failed:', error);
