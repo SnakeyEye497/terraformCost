@@ -1,6 +1,8 @@
 import globals from "globals";
 
 export default [{
+    ignores: ["node_modules/**", ".vscode-test/**", "dist/**", "out/**"],
+}, {
     files: ["**/*.js"],
     languageOptions: {
         globals: {

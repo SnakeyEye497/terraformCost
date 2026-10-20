@@ -11,74 +11,93 @@ class InfracostIntegration {
         this.infracostPath = 'infracost';
         this.cacheDir = null;
         this.apiKey = null;
+        this.cliHasApiKey = false; // key configured in the CLI itself (`infracost auth login` / `configure set`)
         this.isAvailable = false;
         this.lastCheck = null;
         this.checkInterval = 5 * 60 * 1000; // 5 minutes
     }
     
-    // In infracost-integration.js
-async promptForApiKey() {
-    const apiKey = await vscode.window.showInputBox({
-        prompt: 'Enter your Infracost API Key',
-        placeHolder: 'ico-xxxxxxxxxxxxxxxxxxxxx',
-        password: true, // Masks the input
-        ignoreFocusOut: true,
-        validateInput: (value) => {
-            if (!value) return 'API key is required';
-            if (!value.startsWith('ico-')) return 'Invalid Infracost API key format';
-            return null;
-        }
-    });
+    async promptForApiKey() {
+        const apiKey = await vscode.window.showInputBox({
+            prompt: 'Enter your Infracost API Key',
+            placeHolder: 'ico-xxxxxxxxxxxxxxxxxxxxx',
+            password: true, // Masks the input
+            ignoreFocusOut: true,
+            validateInput: (value) => {
+                if (!value) return 'API key is required';
+                if (!value.startsWith('ico-')) return 'Invalid Infracost API key format';
+                return null;
+            }
+        });
 
-    if (apiKey) {
-        // Save to global settings
+        if (apiKey) {
+            // Save to global settings
+            const config = vscode.workspace.getConfiguration('terraformCost');
+            await config.update('infracostApiKey', apiKey, vscode.ConfigurationTarget.Global);
+
+            this.apiKey = apiKey;
+            vscode.window.showInformationMessage('✅ Infracost API key saved!');
+        }
+    }
+
+    async initialize(context) {
+        this.cacheDir = context.globalStorageUri.fsPath;
+        await fs.mkdir(this.cacheDir, { recursive: true }).catch(() => {});
+
         const config = vscode.workspace.getConfiguration('terraformCost');
-        await config.update('infracostApiKey', apiKey, vscode.ConfigurationTarget.Global);
-        
-        this.apiKey = apiKey;
-        vscode.window.showInformationMessage('✅ Infracost API key saved!');
+        this.apiKey = config.get('infracostApiKey');
+
+        // Check if Infracost is available
+        this.isAvailable = await this.checkInfracostInstalled();
+
+        if (!this.isAvailable) {
+            console.log('Infracost CLI not available, will use fallback pricing');
+        } else {
+            console.log('Infracost CLI detected and ready');
+            if (!this.apiKey) {
+                this.cliHasApiKey = await this.checkCliApiKey();
+            }
+        }
+
+        // Offer to configure a key only when the CLI is actually installed
+        // (otherwise a key alone can't be used) and has no key of its own,
+        // only if the user hasn't already dismissed this offer, and never
+        // awaited: activation must not block on a notification the user may
+        // simply ignore.
+        const promptDismissedKey = 'terraformCost.infracostKeyPromptDismissed';
+        if (this.isAvailable && !this.hasApiKey() && config.get('useInfracost', true) &&
+            !context.globalState.get(promptDismissedKey)) {
+            vscode.window.showInformationMessage(
+                'Infracost CLI detected but no API key is configured. Add one for accurate cloud pricing.',
+                'Enter API Key',
+                'Get Free Key',
+                'Use Fallback Pricing'
+            ).then(async (action) => {
+                if (action === 'Enter API Key') {
+                    await this.promptForApiKey();
+                } else if (action === 'Get Free Key') {
+                    vscode.env.openExternal(vscode.Uri.parse('https://www.infracost.io/docs/#quick-start'));
+                } else if (action === 'Use Fallback Pricing') {
+                    await context.globalState.update(promptDismissedKey, true);
+                }
+            });
+        }
+
+        return this.isAvailable;
     }
-}
 
-// Call this when Infracost is not configured
-async initialize(context) {
-    const config = vscode.workspace.getConfiguration('terraformCost');
-    this.apiKey = config.get('infracostApiKey');
+    hasApiKey() {
+        return !!this.apiKey || this.cliHasApiKey;
+    }
 
-    if (!this.apiKey) {
-        const action = await vscode.window.showInformationMessage(
-            'Infracost API key not configured. Get accurate cloud pricing!',
-            'Enter API Key',
-            'Get Free Key',
-            'Use Fallback Pricing'
-        );
-
-        if (action === 'Enter API Key') {
-            await this.promptForApiKey();
-        } else if (action === 'Get Free Key') {
-            vscode.env.openExternal(vscode.Uri.parse('https://www.infracost.io/docs/#quick-start'));
+    async checkCliApiKey() {
+        try {
+            const { stdout } = await execAsync('infracost configure get api_key', { timeout: 5000 });
+            return /ico-\S+/.test(stdout);
+        } catch {
+            return false;
         }
     }
-
-  }
-    // async initialize(context) {
-    //     this.cacheDir = context.globalStorageUri.fsPath;
-    //     await fs.mkdir(this.cacheDir, { recursive: true }).catch(() => {});
-
-    //     const config = vscode.workspace.getConfiguration('terraformCost');
-    //     this.apiKey = config.get('infracostApiKey');
-
-    //     // Check if Infracost is available
-    //     this.isAvailable = await this.checkInfracostInstalled();
-        
-    //     if (!this.isAvailable) {
-    //         console.log('Infracost CLI not available, will use fallback pricing');
-    //     } else {
-    //         console.log('Infracost CLI detected and ready');
-    //     }
-
-    //     return this.isAvailable;
-    // }
 
     async checkInfracostInstalled() {
         // Rate limit checks
@@ -100,7 +119,7 @@ async initialize(context) {
     }
 
     async calculateCostsWithInfracost(terraformPath) {
-        if (!this.isAvailable || !this.apiKey) {
+        if (!this.isAvailable || !this.hasApiKey()) {
             return null;
         }
 
@@ -112,9 +131,10 @@ async initialize(context) {
 
             const env = {
                 ...process.env,
-                INFRACOST_API_KEY: this.apiKey,
-                INFRACOST_LOG_LEVEL: 'error'
+                INFRACOST_LOG_LEVEL: 'error',
+                INFRACOST_SKIP_UPDATE_CHECK: 'true'
             };
+            if (this.apiKey) env.INFRACOST_API_KEY = this.apiKey; // otherwise the CLI's own configured key is used
 
             // Check if path is a file or directory
             const stats = await fs.stat(terraformPath).catch(() => null);
@@ -129,7 +149,7 @@ async initialize(context) {
             
             console.log('Running Infracost for:', targetPath);
             
-            const { stdout, stderr } = await execAsync(command, { 
+            await execAsync(command, {
                 env,
                 timeout: 60000, // 60 second timeout
                 maxBuffer: 10 * 1024 * 1024 // 10MB buffer
@@ -271,16 +291,17 @@ async initialize(context) {
 
     async quickBreakdown(workspaceRoot) {
         // Optimized for quick estimates
-        if (!this.isAvailable || !this.apiKey) {
+        if (!this.isAvailable || !this.hasApiKey()) {
             return null;
         }
 
         try {
             const env = {
                 ...process.env,
-                INFRACOST_API_KEY: this.apiKey,
-                INFRACOST_LOG_LEVEL: 'error'
+                INFRACOST_LOG_LEVEL: 'error',
+                INFRACOST_SKIP_UPDATE_CHECK: 'true'
             };
+            if (this.apiKey) env.INFRACOST_API_KEY = this.apiKey;
 
             // Use --format json for structured output
             const command = `infracost breakdown --path "${workspaceRoot}" --format json`;
@@ -322,7 +343,7 @@ async initialize(context) {
     getStatus() {
         return {
             available: this.isAvailable,
-            hasApiKey: !!this.apiKey,
+            hasApiKey: this.hasApiKey(),
             lastCheck: this.lastCheck
         };
     }

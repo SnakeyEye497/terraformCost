@@ -1,0 +1,24 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "compile",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"label": "npm: compile",
+			"detail": "Bundle extension.js + src/ into dist/extension.js (webpack)"
+		},
+		{
+			"type": "npm",
+			"script": "watch",
+			"isBackground": true,
+			"problemMatcher": [],
+			"label": "npm: watch",
+			"detail": "Rebuild dist/extension.js on every change"
+		}
+	]
+}

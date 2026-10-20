@@ -233,6 +233,18 @@ suite('Configuration Tests', () => {
         assert.ok(commandIds.includes('terraformCost.toggleCostDisplay'));
         assert.ok(commandIds.includes('terraformCost.refreshCosts'));
     });
+
+    test('Activating the bundled extension registers every declared command, and only those', async function () {
+        this.timeout(30000);
+        const packageJson = require('../package.json');
+        const extension = vscode.extensions.getExtension(`${packageJson.publisher}.${packageJson.name}`);
+        assert.ok(extension, 'extension should be loaded in the test host');
+        await extension.activate();
+
+        const registered = (await vscode.commands.getCommands(true)).filter((c) => c.startsWith('terraformCost.'));
+        const declared = packageJson.contributes.commands.map((c) => c.command);
+        assert.deepStrictEqual([...registered].sort(), [...declared].sort());
+    });
 });
 
 // Mock VS Code API for testing
@@ -244,7 +256,7 @@ if (typeof vscode === 'undefined') {
             showErrorMessage: (msg) => console.log('Error:', msg)
         },
         workspace: {
-            getConfiguration: (section) => ({
+            getConfiguration: () => ({
                 get: (key, defaultValue) => defaultValue
             })
         }

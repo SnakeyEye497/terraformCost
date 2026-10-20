@@ -54,7 +54,7 @@ class ErrorHandler {
         );
     }
 
-    async handleParseError(error, content) {
+    async handleParseError(error) {
         return this.handleError(
             error,
             'Terraform Parser',
