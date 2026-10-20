@@ -1,7 +1,7 @@
 const assert = require('assert');
 const path = require('path');
-const TerraformParser = require('../../src/terraform-parser');
-const { resolveModuleGraph, parseModuleManifest } = require('../../src/module-resolver');
+const TerraformParser = require('../../src/core/terraform-parser');
+const { resolveModuleGraph, parseModuleManifest } = require('../../src/core/module-resolver');
 
 // Builds the parsedByFile map resolveModuleGraph expects from { relPath: hcl }.
 async function parseTree(files, root = path.resolve('/virtual-project')) {

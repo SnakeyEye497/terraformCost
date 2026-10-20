@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const InfracostIntegration = require('./infracost-integration');
+const InfracostIntegration = require('../integrations/infracost-integration');
 
 const HOURS_PER_MONTH = 730;
 

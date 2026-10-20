@@ -1,6 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
-const billing = require('../../src/billing-integration');
+const billing = require('../../src/integrations/billing-integration');
 
 const NOW = new Date(Date.UTC(2026, 9, 20, 12)); // 2026-10-20
 

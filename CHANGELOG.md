@@ -6,8 +6,15 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Restructured
+- Source split into `src/core`, `src/integrations`, `src/config`, `src/ui`, `src/export` and `src/utils`, with the entry point moved to `src/extension.js`.
+- Documentation moved into `docs/`: getting started, walkthrough, commands, configuration, pricing, architecture, development, troubleshooting, known limitations, and one page per feature. The root README is now a short overview. Older design notes are in `docs/archive/`.
+- `example.tf` moved to `examples/`, and test fixtures to `test/fixtures/`. Removed the generator boilerplate (`vsc-extension-quickstart.md`, unused `.vscode-test.mjs`).
+- The GitHub Action now uses Node 22 and current major action versions.
+
 ### Added
-- `Terraform Cost: Compare Estimate with Actual Cloud Spend`: pulls last-month and month-to-date spend from AWS Cost Explorer, Azure Cost Management and the GCP BigQuery billing export (via each provider's CLI) and compares it against the Terraform estimate. (`src/billing-integration.js`)
+- `Terraform Cost: Send Test Budget Alert` command to confirm Slack/Teams webhook delivery.
+- `Terraform Cost: Compare Estimate with Actual Cloud Spend`: pulls last-month and month-to-date spend from AWS Cost Explorer, Azure Cost Management and the GCP BigQuery billing export (via each provider's CLI) and compares it against the Terraform estimate. (`src/integrations/billing-integration.js`)
 - Built-in pricing for ~35 more resource types, including EKS node groups, Aurora instances, ElastiCache replication groups, Lambda, DynamoDB, EFS, OpenSearch, Redshift, MSK, Elastic IPs, VPC endpoints, GKE node pools, Memorystore, Azure Flexible Servers, Redis, App Service plans, AKS node pools and VM scale sets, plus larger instance-size tables.
 - Literal `count` / `for_each` on resources multiplies their cost; RDS and Cloud SQL now include storage; AKS/GKE include their node pools.
 - Module resolution for remote (registry/git) modules via `.terraform/modules/modules.json`, and for `count` / `for_each` on module blocks.

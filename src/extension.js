@@ -3,20 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const TerraformCostCalculator = require('./src/cost-calculator');
-const TerraformParser = require('./src/terraform-parser');
-const CostDecorator = require('./src/cost-decorator');
-const StatusBarManager = require('./src/status-bar-manager');
-const ErrorHandler = require('./src/error-handler');
-const CostDashboardPanel = require('./src/cost-dashboard');
-const AIAdvisor = require('./src/ai-advisor');
-const WorkspaceScanner = require('./src/workspace-scanner');
-const CapacityManager = require('./src/capacity-manager');
-const excelExporter = require('./src/excel-exporter');
-const NotificationManager = require('./src/notification-manager');
-const CostHistoryManager = require('./src/cost-history-manager');
-const { extractResourcesFromPlan, getPlanMetadata } = require('./src/plan-parser');
-const billingIntegration = require('./src/billing-integration');
+const TerraformCostCalculator = require('./core/cost-calculator');
+const TerraformParser = require('./core/terraform-parser');
+const CostDecorator = require('./ui/cost-decorator');
+const StatusBarManager = require('./ui/status-bar-manager');
+const ErrorHandler = require('./utils/error-handler');
+const CostDashboardPanel = require('./ui/cost-dashboard');
+const AIAdvisor = require('./integrations/ai-advisor');
+const WorkspaceScanner = require('./core/workspace-scanner');
+const CapacityManager = require('./config/capacity-manager');
+const excelExporter = require('./export/excel-exporter');
+const NotificationManager = require('./integrations/notification-manager');
+const CostHistoryManager = require('./config/cost-history-manager');
+const { extractResourcesFromPlan, getPlanMetadata } = require('./core/plan-parser');
+const billingIntegration = require('./integrations/billing-integration');
 const debounce = require('debounce');
 
 const execFileAsync = promisify(execFile);
@@ -111,7 +111,7 @@ async function activate(context) {
         terraformParser = new TerraformParser();
         costDecorator = new CostDecorator();
         statusBarManager = new StatusBarManager();
-    budgetManager = new (require('./src/budget-manager'))();
+    budgetManager = new (require('./config/budget-manager'))();
     budgetDiagnostics = vscode.languages.createDiagnosticCollection('terraformBudget');
     aiAdvisor = new AIAdvisor(context);
     workspaceScanner = new WorkspaceScanner(terraformParser, costCalculator);
@@ -1180,7 +1180,7 @@ async function buildPlanDashboardAggregate(planFilePath, resourceItems) {
  * .tfplan converted via the terraform CLI if one's on PATH), extract and
  * cost its resources, and push the result into the dashboard as a new
  * 'plan' scope — verified end-to-end against a real `terraform init && plan
- * && show -json` run (test-fixtures/sample-plan), not just a hand-authored
+ * && show -json` run (test/fixtures/sample-plan), not just a hand-authored
  * synthetic JSON.
  */
 async function runCalculateFromPlan() {
